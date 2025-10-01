@@ -1,0 +1,45 @@
+{
+  "name": "tabsense",
+  "version": "0.1.0",
+  "description": "AI-powered research assistant for Chrome tabs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:watch": "vite build --watch",
+    "preview": "vite preview",
+    "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint src/ --ext .js,.jsx,.ts,.tsx --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "test": "echo 'No tests yet' && exit 0",
+    "clean": "rm -rf dist",
+    "setup": "npm install && npm run build"
+  },
+  "keywords": [
+    "chrome-extension",
+    "ai",
+    "summarization",
+    "research",
+    "productivity"
+  ],
+  "author": "TabSense Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/chrome": "^0.0.251",
+    "autoprefixer": "^10.4.0",
+    "eslint": "^8.55.0",
+    "postcss": "^8.4.0",
+    "prettier": "^3.1.0",
+    "tailwindcss": "^3.3.0",
+    "terser": "^5.44.0",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.4.4"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

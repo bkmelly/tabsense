@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TabSense Service Worker Test - Milestone 1</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            background: #f5f5f5;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border-left: 4px solid #3B82F6;
+        }
+        .test-result {
+            background: #e8f5e8;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border-left: 4px solid #10B981;
+        }
+        .test-error {
+            background: #ffe8e8;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border-left: 4px solid #EF4444;
+        }
+        button {
+            background: #3B82F6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563EB;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
+        .status.success {
+            background: #e8f5e8;
+            border-left: 4px solid #4caf50;
+        }
+        .status.warning {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+        }
+        .status.error {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 TabSense Service Worker Test - Milestone 1</h1>
+    <p>This page tests the service worker foundation before proceeding to the next milestone.</p>
+
+    <div class="test-section">
+        <h2>1. Service Worker Status</h2>
+        <div id="status" class="status info">Checking service worker status...</div>
+        <button onclick="checkServiceWorkerStatus()">Check Status</button>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Basic Communication Test</h2>
+        <button onclick="testPing()">Test Ping</button>
+        <button onclick="testGetStatus()">Get Status</button>
+        <div id="communicationResult"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Configuration Test</h2>
+        <button onclick="testGetConfig()">Get Config</button>
+        <button onclick="testUpdateConfig()">Update Config</button>
+        <div id="configResult"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Placeholder Functionality Test</h2>
+        <button onclick="testPlaceholderFunctions()">Test Placeholders</button>
+        <div id="placeholderResult"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. Milestone 1 Complete Test</h2>
+        <button onclick="runMilestone1Tests()">Run All Milestone 1 Tests</button>
+        <div id="milestoneResult"></div>
+    </div>
+
+    <script>
+        // Test functions for service worker communication
+        async function sendMessageToServiceWorker(message) {
+            return new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage(message, (response) => {
+                    if (chrome.runtime.lastError) {
+                        reject(new Error(chrome.runtime.lastError.message));
+                    } else {
+                        resolve(response);
+                    }
+                });
+            });
+        }
+
+        async function checkServiceWorkerStatus() {
+            const statusDiv = document.getElementById('status');
+            try {
+                statusDiv.innerHTML = 'Checking service worker...';
+                
+                // Test basic connectivity
+                const response = await sendMessageToServiceWorker({ action: 'PING' });
+                
+                if (response && response.success) {
+                    statusDiv.innerHTML = `
+                        <strong>✅ Service Worker Status:</strong><br>
+                        Connected: Yes<br>
+                        Pong: ${response.data.pong}<br>
+                        Timestamp: ${new Date(response.data.timestamp).toLocaleString()}<br>
+                        Sender: ${response.data.sender}
+                    `;
+                    statusDiv.className = 'status success';
+                } else {
+                    throw new Error('Invalid response from service worker');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `❌ Service Worker Error: ${error.message}`;
+                statusDiv.className = 'status error';
+            }
+        }
+
+        async function testPing() {
+            const resultDiv = document.getElementById('communicationResult');
+            try {
+                resultDiv.innerHTML = '<div class="test-result">Sending ping...</div>';
+                
+                const response = await sendMessageToServiceWorker({ action: 'PING' });
+                
+                resultDiv.innerHTML = `
+                    <div class="test-result">
+                        <strong>✅ Ping Test Passed:</strong><br>
+                        Response: ${JSON.stringify(response.data, null, 2)}
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-error">❌ Ping Test Failed: ${error.message}</div>`;
+            }
+        }
+
+        async function testGetStatus() {
+            const resultDiv = document.getElementById('communicationResult');
+            try {
+                resultDiv.innerHTML = '<div class="test-result">Getting status...</div>';
+                
+                const response = await sendMessageToServiceWorker({ action: 'GET_STATUS' });
+                
+                resultDiv.innerHTML = `
+                    <div class="test-result">
+                        <strong>✅ Status Test Passed:</strong><br>
+                        <pre>${JSON.stringify(response.data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-error">❌ Status Test Failed: ${error.message}</div>`;
+            }
+        }
+
+        async function testGetConfig() {
+            const resultDiv = document.getElementById('configResult');
+            try {
+                resultDiv.innerHTML = '<div class="test-result">Getting config...</div>';
+                
+                const response = await sendMessageToServiceWorker({ action: 'GET_CONFIG' });
+                
+                resultDiv.innerHTML = `
+                    <div class="test-result">
+                        <strong>✅ Config Test Passed:</strong><br>
+                        <pre>${JSON.stringify(response.data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-error">❌ Config Test Failed: ${error.message}</div>`;
+            }
+        }
+
+        async function testUpdateConfig() {
+            const resultDiv = document.getElementById('configResult');
+            try {
+                resultDiv.innerHTML = '<div class="test-result">Updating config...</div>';
+                
+                const testKey = 'testValue';
+                const testValue = `Test-${Date.now()}`;
+                
+                const response = await sendMessageToServiceWorker({ 
+                    action: 'UPDATE_CONFIG', 
+                    payload: { key: testKey, value: testValue } 
+                });
+                
+                resultDiv.innerHTML = `
+                    <div class="test-result">
+                        <strong>✅ Config Update Test Passed:</strong><br>
+                        Updated: ${response.data.updated.key} = ${response.data.updated.value}
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-error">❌ Config Update Test Failed: ${error.message}</div>`;
+            }
+        }
+
+        async function testPlaceholderFunctions() {
+            const resultDiv = document.getElementById('placeholderResult');
+            try {
+                resultDiv.innerHTML = '<div class="test-result">Testing placeholder functions...</div>';
+                
+                const tests = [
+                    { action: 'SUMMARIZE_TEXT', payload: { text: 'Test text' } },
+                    { action: 'ANSWER_QUESTION', payload: { question: 'Test question' } },
+                    { action: 'GET_TABS' },
+                    { action: 'PROCESS_TAB', payload: { tabId: 1 } }
+                ];
+                
+                const results = [];
+                for (const test of tests) {
+                    const response = await sendMessageToServiceWorker(test);
+                    results.push({
+                        action: test.action,
+                        success: response.success,
+                        message: response.data.message,
+                        placeholder: response.data.placeholder
+                    });
+                }
+                
+                resultDiv.innerHTML = `
+                    <div class="test-result">
+                        <strong>✅ Placeholder Functions Test Passed:</strong><br>
+                        <pre>${JSON.stringify(results, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-error">❌ Placeholder Functions Test Failed: ${error.message}</div>`;
+            }
+        }
+
+        async function runMilestone1Tests() {
+            const resultDiv = document.getElementById('milestoneResult');
+            resultDiv.innerHTML = '<div class="test-result">Running Milestone 1 tests...</div>';
+            
+            const tests = [
+                { name: 'Service Worker Status', fn: checkServiceWorkerStatus },
+                { name: 'Ping Communication', fn: testPing },
+                { name: 'Get Status', fn: testGetStatus },
+                { name: 'Get Config', fn: testGetConfig },
+                { name: 'Update Config', fn: testUpdateConfig },
+                { name: 'Placeholder Functions', fn: testPlaceholderFunctions }
+            ];
+            
+            const results = [];
+            for (const test of tests) {
+                try {
+                    await test.fn();
+                    results.push({ name: test.name, status: 'PASS' });
+                } catch (error) {
+                    results.push({ name: test.name, status: 'FAIL', error: error.message });
+                }
+            }
+            
+            const passed = results.filter(r => r.status === 'PASS').length;
+            const total = results.length;
+            
+            resultDiv.innerHTML = `
+                <div class="test-result">
+                    <strong>🎯 Milestone 1 Test Results:</strong><br>
+                    Passed: ${passed}/${total}<br>
+                    Success Rate: ${Math.round((passed / total) * 100)}%<br><br>
+                    <strong>Test Details:</strong><br>
+                    ${results.map(r => `${r.status === 'PASS' ? '✅' : '❌'} ${r.name}`).join('<br>')}
+                </div>
+            `;
+            
+            if (passed === total) {
+                resultDiv.innerHTML += `
+                    <div class="test-result">
+                        <strong>🎉 Milestone 1 Complete!</strong><br>
+                        Service worker foundation is working correctly.<br>
+                        Ready to proceed to Milestone 2: Content Script.
+                    </div>
+                `;
+            }
+        }
+
+        // Auto-check status on load
+        checkServiceWorkerStatus();
+    </script>
+</body>
+</html>
