@@ -166,11 +166,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Issues**: [GitHub Issues](https://github.com/yourusername/tabsense/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/yourusername/tabsense/discussions)
-- **Email**: support@tabsense.ai
+- **Email**: lagatbenaiah24@gmail.com
 
 ---
 
 <div align="center">
   <p><strong>TabSense - Making browsing smarter, one tab at a time.</strong></p>
-  <p>Built with ❤️ for the Chrome AI Challenge 2025</p>
+  <p>Built with ❤️ for the Chrome BUILT-IN AI Challenge 2025</p>
 </div>
