@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Phase 1 Test - Open This in Extension Context</title>
+  <style>
+    body {
+      font-family: system-ui;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin: 20px 0;
+    }
+    h1 { color: #2563eb; }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover { background: #1d4ed8; }
+    pre {
+      background: #f9fafb;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🧪 Phase 1 Extension Test</h1>
+    <p><strong>Instructions:</strong> Open this page, then open your TabSense extension popup and click "Refresh Tab Summaries". The new extraction modules will be used automatically!</p>
+    
+    <h2>📄 Test Content</h2>
+    <article>
+      <h1>Sample Article: The Future of AI</h1>
+      <p>Artificial intelligence continues to transform industries worldwide. From healthcare diagnostics to autonomous vehicles, AI systems are becoming increasingly sophisticated and capable.</p>
+      
+      <h2>Healthcare Applications</h2>
+      <p>Medical imaging analysis powered by deep learning can detect diseases earlier than traditional methods. AI-assisted diagnosis helps doctors make more accurate treatment decisions.</p>
+      
+      <h2>Transportation Innovation</h2>
+      <p>Self-driving cars use computer vision and sensor fusion to navigate complex environments. These systems promise to reduce traffic accidents and improve transportation efficiency.</p>
+      
+      <h3>Safety Considerations</h3>
+      <p>Despite advances, autonomous vehicle safety remains a critical concern. Rigorous testing and regulatory frameworks are essential for public adoption.</p>
+      
+      <p>The integration of AI into daily life raises important questions about privacy, ethics, and employment. Policymakers must balance innovation with responsible development.</p>
+    </article>
+  </div>
+
+  <div class="card">
+    <h2>✅ Expected Results</h2>
+    <p>When you extract this page content, you should see:</p>
+    <ul>
+      <li><strong>Method:</strong> dom-aware (found <code>&lt;article&gt;</code> element)</li>
+      <li><strong>Word Count:</strong> ~150 words</li>
+      <li><strong>Sections:</strong> 4 sections with headings</li>
+      <li><strong>Quality Score:</strong> PASS (meets all thresholds)</li>
+      <li><strong>Content Density:</strong> >0.1</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>🔧 Integration Status</h2>
+    <p id="status">Checking if Phase 1 modules are integrated...</p>
+    <button onclick="checkIntegration()">Check Integration</button>
+    <pre id="result"></pre>
+  </div>
+
+  <script>
+    function checkIntegration() {
+      const result = document.getElementById('result');
+      const status = document.getElementById('status');
+      
+      status.textContent = '✅ Phase 1 modules created! Next step: integrate with service worker';
+      result.textContent = `
+Phase 1 Modules Created:
+- ✅ src/lib/contentExtractor.js
+- ✅ src/lib/contentCleaner.js  
+- ✅ src/lib/contentScorer.js
+
+Next Steps:
+1. Update background-simple.js to use new modules
+2. Test extraction from TabSense popup
+3. Verify quality improvements
+
+Current Status:
+- Modules are ready but not yet integrated with service worker
+- Need to update EXTRACT_PAGE_DATA handler
+- Will see improvements after integration
+      `;
+    }
+  </script>
+</body>
+</html>
+
