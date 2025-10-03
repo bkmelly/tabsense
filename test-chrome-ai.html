@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chrome AI Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .warning { background-color: #fff3cd; border-color: #ffeaa7; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        #results { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Chrome Built-in AI Test</h1>
+    
+    <div class="test-section">
+        <h2>System Requirements Check</h2>
+        <div id="requirements"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Chrome AI API Availability</h2>
+        <button onclick="checkSummarizer()">Check Summarizer API</button>
+        <button onclick="checkPrompt()">Check Prompt API</button>
+        <button onclick="checkAllAPIs()">Check All APIs</button>
+        <div id="api-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test AI Functionality</h2>
+        <button onclick="testSummarizer()">Test Summarizer</button>
+        <button onclick="testPrompt()">Test Prompt</button>
+        <div id="test-results"></div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function updateResults(elementId, content, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = content;
+            element.className = `test-section ${type}`;
+        }
+
+        function checkRequirements() {
+            const requirements = [];
+            
+            // Check Chrome version
+            const userAgent = navigator.userAgent;
+            const chromeMatch = userAgent.match(/Chrome\/(\d+)/);
+            if (chromeMatch) {
+                const version = parseInt(chromeMatch[1]);
+                if (version >= 140) {
+                    requirements.push(`✅ Chrome ${version} (Supports AI APIs)`);
+                } else {
+                    requirements.push(`❌ Chrome ${version} (Need Chrome 140+)`);
+                }
+            }
+            
+            // Check if we're on localhost
+            if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+                requirements.push('✅ Running on localhost (AI APIs enabled)');
+            } else {
+                requirements.push('⚠️ Not on localhost (AI APIs may not work)');
+            }
+            
+            // Check storage (approximate)
+            if ('storage' in navigator && 'estimate' in navigator.storage) {
+                navigator.storage.estimate().then(estimate => {
+                    const availableGB = Math.round(estimate.quota / (1024 * 1024 * 1024));
+                    if (availableGB >= 22) {
+                        requirements.push(`✅ Storage: ${availableGB}GB available (Need 22GB)`);
+                    } else {
+                        requirements.push(`❌ Storage: ${availableGB}GB available (Need 22GB)`);
+                    }
+                    updateResults('requirements', requirements.join('<br>'));
+                });
+            } else {
+                requirements.push('⚠️ Cannot check storage quota');
+                updateResults('requirements', requirements.join('<br>'));
+            }
+        }
+
+        async function checkSummarizer() {
+            try {
+                log('Checking Summarizer API...');
+                
+                if (typeof Summarizer === 'undefined') {
+                    updateResults('api-results', '❌ Summarizer API not available', 'error');
+                    return;
+                }
+                
+                const availability = await Summarizer.availability();
+                log(`Summarizer availability: ${availability}`);
+                
+                let message = `Summarizer API Status: ${availability}`;
+                let type = 'warning';
+                
+                switch (availability) {
+                    case 'available':
+                        message += '<br>✅ Ready to use!';
+                        type = 'success';
+                        break;
+                    case 'downloadable':
+                        message += '<br>⚠️ Model needs to be downloaded (user interaction required)';
+                        break;
+                    case 'downloading':
+                        message += '<br>⏳ Model is currently downloading...';
+                        break;
+                    case 'unavailable':
+                        message += '<br>❌ Not supported on this device';
+                        type = 'error';
+                        break;
+                }
+                
+                updateResults('api-results', message, type);
+                
+            } catch (error) {
+                log('Error checking Summarizer', 'error');
+                updateResults('api-results', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkPrompt() {
+            try {
+                log('Checking Prompt API...');
+                
+                if (typeof Prompt === 'undefined') {
+                    updateResults('api-results', '❌ Prompt API not available', 'error');
+                    return;
+                }
+                
+                const availability = await Prompt.availability();
+                log(`Prompt availability: ${availability}`);
+                
+                let message = `Prompt API Status: ${availability}`;
+                let type = 'warning';
+                
+                switch (availability) {
+                    case 'available':
+                        message += '<br>✅ Ready to use!';
+                        type = 'success';
+                        break;
+                    case 'downloadable':
+                        message += '<br>⚠️ Model needs to be downloaded (user interaction required)';
+                        break;
+                    case 'downloading':
+                        message += '<br>⏳ Model is currently downloading...';
+                        break;
+                    case 'unavailable':
+                        message += '<br>❌ Not supported on this device';
+                        type = 'error';
+                        break;
+                }
+                
+                updateResults('api-results', message, type);
+                
+            } catch (error) {
+                log('Error checking Prompt', 'error');
+                updateResults('api-results', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkAllAPIs() {
+            const results = [];
+            
+            // Check Summarizer
+            if (typeof Summarizer !== 'undefined') {
+                try {
+                    const availability = await Summarizer.availability();
+                    results.push(`Summarizer: ${availability}`);
+                } catch (error) {
+                    results.push(`Summarizer: Error - ${error.message}`);
+                }
+            } else {
+                results.push('Summarizer: Not available');
+            }
+            
+            // Check Prompt
+            if (typeof Prompt !== 'undefined') {
+                try {
+                    const availability = await Prompt.availability();
+                    results.push(`Prompt: ${availability}`);
+                } catch (error) {
+                    results.push(`Prompt: Error - ${error.message}`);
+                }
+            } else {
+                results.push('Prompt: Not available');
+            }
+            
+            // Check other APIs
+            const apis = ['Proofreader', 'Translator', 'LanguageDetector'];
+            apis.forEach(apiName => {
+                if (typeof window[apiName] !== 'undefined') {
+                    results.push(`${apiName}: Available`);
+                } else {
+                    results.push(`${apiName}: Not available`);
+                }
+            });
+            
+            updateResults('api-results', results.join('<br>'), 'info');
+        }
+
+        async function testSummarizer() {
+            try {
+                log('Testing Summarizer...');
+                
+                if (typeof Summarizer === 'undefined') {
+                    updateResults('test-results', '❌ Summarizer API not available', 'error');
+                    return;
+                }
+                
+                const availability = await Summarizer.availability();
+                if (availability !== 'available') {
+                    updateResults('test-results', `❌ Summarizer not ready: ${availability}`, 'error');
+                    return;
+                }
+                
+                const testText = "Artificial intelligence (AI) is intelligence demonstrated by machines, in contrast to the natural intelligence displayed by humans and animals. Leading AI textbooks define the field as the study of 'intelligent agents': any device that perceives its environment and takes actions that maximize its chance of successfully achieving its goals.";
+                
+                const summarizer = await Summarizer.create();
+                const result = await summarizer.summarize(testText);
+                
+                updateResults('test-results', `✅ Summarizer Test Passed!<br><br><strong>Original:</strong><br>${testText}<br><br><strong>Summary:</strong><br>${result}`, 'success');
+                
+            } catch (error) {
+                log('Summarizer test failed', 'error');
+                updateResults('test-results', `❌ Summarizer Test Failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testPrompt() {
+            try {
+                log('Testing Prompt...');
+                
+                if (typeof Prompt === 'undefined') {
+                    updateResults('test-results', '❌ Prompt API not available', 'error');
+                    return;
+                }
+                
+                const availability = await Prompt.availability();
+                if (availability !== 'available') {
+                    updateResults('test-results', `❌ Prompt not ready: ${availability}`, 'error');
+                    return;
+                }
+                
+                const testPrompt = "What is artificial intelligence? Please provide a brief explanation.";
+                
+                const promptSession = await Prompt.create();
+                const result = await promptSession.prompt(testPrompt);
+                
+                updateResults('test-results', `✅ Prompt Test Passed!<br><br><strong>Question:</strong><br>${testPrompt}<br><br><strong>Answer:</strong><br>${result}`, 'success');
+                
+            } catch (error) {
+                log('Prompt test failed', 'error');
+                updateResults('test-results', `❌ Prompt Test Failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize on page load
+        window.onload = function() {
+            checkRequirements();
+        };
+    </script>
+</body>
+</html>

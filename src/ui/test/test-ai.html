@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TabSense AI Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.2em;
+        }
+        .test-section {
+            margin: 25px 0;
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: #f9f9f9;
+        }
+        .test-section h2 {
+            color: #4a5568;
+            margin-top: 0;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .result {
+            background: #f0f8ff;
+            border: 1px solid #b0d4f1;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .error {
+            background: #ffe6e6;
+            border: 1px solid #ffb3b3;
+            color: #d00;
+        }
+        .success {
+            background: #e6ffe6;
+            border: 1px solid #b3ffb3;
+            color: #060;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        .sample-text {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Georgia', serif;
+            line-height: 1.6;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-available {
+            background: #28a745;
+        }
+        .status-unavailable {
+            background: #dc3545;
+        }
+        .status-testing {
+            background: #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 TabSense AI Test</h1>
+        
+        <div class="test-section">
+            <h2>🔧 1. Extension Status Check</h2>
+            <button onclick="checkExtensionStatus()">Check Extension Status</button>
+            <div id="statusResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>📝 2. Test Local Summarization</h2>
+            <div class="sample-text">
+                <strong>Sample Text:</strong><br><br>
+                Artificial intelligence has become one of the most transformative technologies of our time, revolutionizing industries from healthcare and finance to transportation and entertainment. Machine learning algorithms can now process vast amounts of data to identify patterns, make predictions, and automate complex decision-making processes.
+            </div>
+            <button onclick="testSummarization()">Test Summarization</button>
+            <div id="summarizationResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🤔 3. Test Local Q&A</h2>
+            <input type="text" id="questionInput" placeholder="Ask a question about the sample text..." style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px; margin: 10px 0;">
+            <button onclick="testQA()">Test Q&A</button>
+            <div id="qaResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>📊 4. Test Multi-Tab Operations</h2>
+            <button onclick="simulateMultiTab()">Simulate Multi-Tab Data</button>
+            <button onclick="testMultiTabSummary()">Test Multi-Tab Summary</button>
+            <button onclick="testMultiTabQA()">Test Multi-Tab Q&A</button>
+            <div id="multiTabResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🔍 5. Debug Information</h2>
+            <button onclick="showDebugInfo()">Show Debug Info</button>
+            <div id="debugResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Test functions
+        async function checkExtensionStatus() {
+            const resultDiv = document.getElementById('statusResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Checking extension status...';
+
+            try {
+                // Check if chrome.runtime is available
+                if (typeof chrome === 'undefined' || !chrome.runtime) {
+                    throw new Error('Chrome extension APIs not available. Make sure you are running this test within the extension context.');
+                }
+
+                const response = await chrome.runtime.sendMessage({
+                    action: 'GET_STATUS'
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Extension Status:
+Initialized: ${response.data.initialized}
+Chrome AI Available: ${response.data.config?.aiProvider === 'chrome' ? 'Yes' : 'No'}
+Fallback Mode: ${response.data.config?.fallbackEnabled ? 'Enabled' : 'Disabled'}
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}
+
+Troubleshooting:
+1. Make sure the TabSense extension is loaded in chrome://extensions/
+2. Make sure the extension is enabled
+3. Try refreshing this page
+4. Check the browser console for more details`;
+            }
+        }
+
+        async function testSummarization() {
+            const resultDiv = document.getElementById('summarizationResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Testing summarization...';
+
+            try {
+                const testText = document.querySelector('.sample-text').textContent.replace('Sample Text:', '').trim();
+                
+                const response = await chrome.runtime.sendMessage({
+                    action: 'SUMMARIZE_TEXT',
+                    payload: {
+                        text: testText,
+                        options: { maxLength: 'medium' }
+                    }
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Summarization Test:
+Original Length: ${response.data.originalLength} characters
+Summary Length: ${response.data.summaryLength} characters
+Compression: ${((1 - response.data.summaryLength / response.data.originalLength) * 100).toFixed(1)}%
+
+Summary: ${response.data.summary}
+
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testQA() {
+            const question = document.getElementById('questionInput').value.trim();
+            if (!question) {
+                alert('Please enter a question');
+                return;
+            }
+
+            const resultDiv = document.getElementById('qaResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = `Testing Q&A: "${question}"...`;
+
+            try {
+                const testText = document.querySelector('.sample-text').textContent.replace('Sample Text:', '').trim();
+                const summaries = [{
+                    title: 'AI Technology Overview',
+                    summary: testText.substring(0, 500) + '...'
+                }];
+
+                const response = await chrome.runtime.sendMessage({
+                    action: 'ANSWER_QUESTION',
+                    payload: {
+                        question: question,
+                        context: summaries
+                    }
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Q&A Test:
+Question: "${question}"
+
+Answer: ${response.data.answer}
+
+Context Used: ${response.data.contextCount} summaries
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function simulateMultiTab() {
+            const resultDiv = document.getElementById('multiTabResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Simulating multi-tab data...';
+
+            try {
+                const simulatedTabs = [
+                    {
+                        url: 'https://example.com/ai-overview',
+                        title: 'AI Technology Overview',
+                        content: 'Artificial intelligence has become one of the most transformative technologies of our time, revolutionizing industries from healthcare and finance to transportation and entertainment.'
+                    },
+                    {
+                        url: 'https://example.com/machine-learning',
+                        title: 'Machine Learning Basics',
+                        content: 'Machine learning algorithms can process vast amounts of data to identify patterns, make predictions, and automate complex decision-making processes.'
+                    },
+                    {
+                        url: 'https://example.com/nlp',
+                        title: 'Natural Language Processing',
+                        content: 'Natural language processing enables computers to understand and generate human language, powering chatbots, translation services, and content creation tools.'
+                    }
+                ];
+
+                for (const tab of simulatedTabs) {
+                    await chrome.runtime.sendMessage({
+                        action: 'PAGE_DATA_EXTRACTED',
+                        payload: tab
+                    });
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ Multi-Tab Simulation Complete:
+Simulated ${simulatedTabs.length} tabs:
+${simulatedTabs.map((tab, i) => `${i + 1}. ${tab.title}`).join('\n')}
+
+Data stored in extension for testing.`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testMultiTabSummary() {
+            const resultDiv = document.getElementById('multiTabResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Testing multi-tab summarization...';
+
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'SUMMARIZE_MULTI_TAB'
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Multi-Tab Summary:
+${response.data.summary}
+
+Total Tabs: ${response.data.tabCount}
+Total Content: ${response.data.totalContentLength} characters
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testMultiTabQA() {
+            const resultDiv = document.getElementById('multiTabResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Testing multi-tab Q&A...';
+
+            try {
+                const question = "What are the main AI technologies discussed across all tabs?";
+                
+                const response = await chrome.runtime.sendMessage({
+                    action: 'ANSWER_MULTI_TAB_QUESTION',
+                    payload: {
+                        question: question
+                    }
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Multi-Tab Q&A:
+Question: "${question}"
+
+Answer: ${response.data.answer}
+
+Context: ${response.data.contextCount} tabs used
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function showDebugInfo() {
+            const resultDiv = document.getElementById('debugResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Gathering debug information...';
+
+            try {
+                let debugInfo = '🔍 Debug Information:\n\n';
+                
+                // Check Chrome APIs
+                debugInfo += `Chrome Runtime Available: ${typeof chrome !== 'undefined' && chrome.runtime ? 'Yes' : 'No'}\n`;
+                debugInfo += `Chrome Storage Available: ${typeof chrome !== 'undefined' && chrome.storage ? 'Yes' : 'No'}\n`;
+                debugInfo += `Chrome Tabs Available: ${typeof chrome !== 'undefined' && chrome.tabs ? 'Yes' : 'No'}\n\n`;
+                
+                // Check extension context
+                debugInfo += `Extension Context: ${chrome.runtime ? 'Available' : 'Not Available'}\n`;
+                debugInfo += `Extension ID: ${chrome.runtime ? chrome.runtime.id : 'N/A'}\n\n`;
+                
+                // Check storage
+                if (chrome.storage) {
+                    try {
+                        const storage = await chrome.storage.local.get(null);
+                        debugInfo += `Storage Keys: ${Object.keys(storage).length}\n`;
+                        debugInfo += `Storage Contents: ${JSON.stringify(storage, null, 2)}\n\n`;
+                    } catch (error) {
+                        debugInfo += `Storage Error: ${error.message}\n\n`;
+                    }
+                }
+                
+                // Check extension status
+                try {
+                    const response = await chrome.runtime.sendMessage({ action: 'GET_STATUS' });
+                    debugInfo += `Extension Response: ${JSON.stringify(response, null, 2)}\n`;
+                } catch (error) {
+                    debugInfo += `Extension Error: ${error.message}\n`;
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = debugInfo;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Debug Error: ${error.message}`;
+            }
+        }
+
+        // Auto-fill sample question
+        document.getElementById('questionInput').addEventListener('focus', function() {
+            if (!this.value) {
+                this.value = 'What are the main applications of AI?';
+            }
+        });
+
+        // Auto-run status check on load
+        window.addEventListener('load', () => {
+            setTimeout(checkExtensionStatus, 1000);
+        });
+    </script>
+</body>
+</html>

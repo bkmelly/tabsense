@@ -1,81 +1,275 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>TabSense Popup</title>
-    <style>
-        body {
-            width: 400px;
-            padding: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-        .test-section {
-            background: #f5f5f5;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 8px;
-            border-left: 4px solid #3B82F6;
-        }
-        .test-result {
-            background: #e8f5e8;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
-            border-left: 4px solid #10B981;
-        }
-        .test-error {
-            background: #ffe8e8;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
-            border-left: 4px solid #EF4444;
-        }
-        button {
-            background: #3B82F6;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            margin: 5px;
-            font-size: 12px;
-        }
-        button:hover {
-            background: #2563EB;
-        }
-        .status {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
-            font-size: 12px;
-        }
-        .status.success {
-            background: #e8f5e8;
-            border-left: 4px solid #4caf50;
-        }
-        .status.error {
-            background: #ffebee;
-            border-left: 4px solid #f44336;
-        }
-    </style>
+  <meta charset="utf-8">
+  <title>TabSense</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f9fafb;
+      margin: 0;
+      padding: 16px;
+      min-height: 400px;
+      width: 400px;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .title {
+      font-size: 20px;
+      font-weight: bold;
+      color: #3B82F6;
+    }
+    .status {
+      padding: 4px 12px;
+      background: #dcfce7;
+      color: #166534;
+      border-radius: 12px;
+      font-size: 12px;
+    }
+    .section {
+      margin: 16px 0;
+      padding: 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #f9fafb;
+    }
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 12px;
+    }
+    .button {
+      width: 100%;
+      padding: 8px 16px;
+      margin: 4px 0;
+      background: #3B82F6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    .button:hover {
+      background: #2563eb;
+    }
+    .button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .button.success {
+      background: #059669;
+    }
+    .button.success:hover {
+      background: #047857;
+    }
+    .button.warning {
+      background: #d97706;
+    }
+    .button.warning:hover {
+      background: #b45309;
+    }
+    .input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      margin: 4px 0;
+    }
+    .input:focus {
+      outline: none;
+      border-color: #3B82F6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    }
+    .result {
+      margin: 8px 0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: 'Courier New', monospace;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .result.success {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+    .result.error {
+      background: #fef2f2;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+    }
+    .result.info {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+    .hidden {
+      display: none;
+    }
+    
+    /* Tab Summary Styles */
+    .tabs-container {
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 12px;
+    }
+    
+    .tab-summary {
+      margin: 8px 0;
+      padding: 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #f9fafb;
+    }
+    
+    .tab-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .tab-title {
+      font-weight: 600;
+      color: #374151;
+      font-size: 14px;
+      flex: 1;
+      margin-right: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .tab-domain {
+      font-size: 11px;
+      color: #6b7280;
+      background: #e5e7eb;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    
+    .tab-summary-text {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    
+    .tab-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #9ca3af;
+    }
+    
+    .tab-actions {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+    }
+    
+    .tab-action-btn {
+      padding: 4px 8px;
+      font-size: 10px;
+      border: 1px solid #d1d5db;
+      background: white;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .tab-action-btn:hover {
+      background: #f3f4f6;
+    }
+    
+    .loading-tabs {
+      text-align: center;
+      padding: 20px;
+      color: #6b7280;
+      font-style: italic;
+    }
+  </style>
 </head>
 <body>
-    <h1>🧪 TabSense Test</h1>
-    <p>Test the service worker functionality:</p>
-
-    <div class="test-section">
-        <h3>Quick Tests</h3>
-        <button id="testPingBtn">Test Ping</button>
-        <button id="testStatusBtn">Get Status</button>
-        <button id="runAllTestsBtn">Run All Tests</button>
-        <div id="testResults"></div>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="title">TabSense</div>
+      <div id="status" class="status">Ready</div>
     </div>
 
-    <div class="test-section">
-        <h3>Open Full Test Suite</h3>
-        <button id="openFullTestBtn">Open Full Test Page</button>
+    <!-- Individual Tab Summaries -->
+    <div class="section">
+      <div class="section-title">📑 Tab Summaries</div>
+      <button id="refreshTabsBtn" class="button success">🔄 Refresh Tab Summaries</button>
+      <div id="tabsContainer" class="tabs-container">
+        <!-- Individual tab summaries will be inserted here -->
+      </div>
     </div>
 
-    <script src="popup.js"></script>
+    <!-- Multi-Tab Operations -->
+    <div class="section">
+      <div class="section-title">🔗 Multi-Tab Operations</div>
+      
+      <!-- Cross-Tab Q&A -->
+      <input type="text" id="questionInput" placeholder="Ask about your open tabs..." class="input">
+      <button id="qaBtn" class="button warning">Ask Cross-Tab Question</button>
+      <div id="qaResult" class="result hidden"></div>
+
+      <!-- Combined Summary -->
+      <button id="combinedSummaryBtn" class="button">📊 Generate Combined Summary</button>
+      <div id="combinedSummaryResult" class="result hidden"></div>
+    </div>
+
+    <!-- Debug & Testing -->
+    <div class="section">
+      <div class="section-title">🧪 Debug & Testing</div>
+      
+      <!-- Status Check -->
+      <button id="statusBtn" class="button">Check Extension Status</button>
+      <div id="statusResult" class="result hidden"></div>
+
+      <!-- Debug Info -->
+      <button id="debugBtn" class="button">Show Debug Info</button>
+      <div id="debugResult" class="result hidden"></div>
+    </div>
+
+    <!-- AI Configuration -->
+    <div class="section">
+      <div class="section-title">🤖 AI Configuration</div>
+      <input type="text" id="openaiKey" placeholder="OpenAI API Key (sk-...)" class="input">
+      <input type="text" id="anthropicKey" placeholder="Anthropic API Key (sk-ant-...)" class="input">
+      <input type="text" id="googleKey" placeholder="Google AI API Key" class="input">
+      <button id="saveKeysBtn" class="button success">Save API Keys</button>
+      <button id="testKeysBtn" class="button">Test AI Models</button>
+      <div id="keysResult" class="result hidden"></div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="section">
+      <div class="section-title">Quick Actions</div>
+      <button id="openSidebarBtn" class="button">Open Sidebar</button>
+      <button id="extractCurrentBtn" class="button success">Extract Current Tab</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
 </html>

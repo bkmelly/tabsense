@@ -19,22 +19,20 @@ export default defineConfig({
         // UI components
         sidebar: resolve(__dirname, 'src/ui/sidebar/sidebar.html'),
         popup: resolve(__dirname, 'src/ui/popup/popup.html'),
-        
-        // Manifest (copy as-is)
-        manifest: resolve(__dirname, 'src/manifest.json')
+        'popup.js': resolve(__dirname, 'src/ui/popup/popup.js')
       },
       output: {
         entryFileNames: (chunkInfo) => {
           // Keep background script as .js
           if (chunkInfo.name === 'background') return 'background.js';
           if (chunkInfo.name === 'content') return 'content.js';
+          if (chunkInfo.name === 'popup.js') return 'popup.js';
           return '[name].js';
         },
         assetFileNames: (assetInfo) => {
           // Handle different asset types
           if (assetInfo.name?.endsWith('.html')) return '[name].[ext]';
           if (assetInfo.name?.endsWith('.css')) return '[name].[ext]';
-          if (assetInfo.name === 'manifest') return 'manifest.json';
           return 'assets/[name].[ext]';
         }
       }

@@ -1,0 +1,747 @@
+❌ Error: Cannot read properties of undefined (reading 'sendMessage')
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TabSense External AI Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: #f9f9f9;
+        }
+        .test-section h2 {
+            color: #4a5568;
+            margin-top: 0;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .result {
+            background: #f0f8ff;
+            border: 1px solid #b0d4f1;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .error {
+            background: #ffe6e6;
+            border: 1px solid #ffb3b3;
+            color: #d00;
+        }
+        .success {
+            background: #e6ffe6;
+            border: 1px solid #b3ffb3;
+            color: #060;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        .api-key-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+        }
+        .api-key-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .model-comparison {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .model-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+        .model-card.cheapest {
+            border-color: #28a745;
+            background: #f8fff8;
+        }
+        .model-card.very-cheap {
+            border-color: #17a2b8;
+            background: #f8feff;
+        }
+        .model-card.moderate {
+            border-color: #ffc107;
+            background: #fffef8;
+        }
+        .model-card.free {
+            border-color: #6c757d;
+            background: #f8f9fa;
+        }
+        .model-name {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .model-cost {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        .model-status {
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-available {
+            color: #28a745;
+        }
+        .status-unavailable {
+            color: #dc3545;
+        }
+        .status-testing {
+            color: #ffc107;
+        }
+        .sample-text {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Georgia', serif;
+            line-height: 1.6;
+        }
+        .cost-breakdown {
+            background: #e8f5e8;
+            border: 1px solid #c3e6c3;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 TabSense External AI Test</h1>
+        
+        <div class="cost-breakdown">
+            <h3>💰 Cost-Optimized AI Chain (Chrome AI Unavailable)</h3>
+            <div class="model-comparison">
+                <div class="model-card cheapest">
+                    <div class="model-name">Claude Haiku</div>
+                    <div class="model-cost">$0.0015/1K tokens</div>
+                    <div class="model-status status-testing">Testing...</div>
+                </div>
+                <div class="model-card very-cheap">
+                    <div class="model-name">Gemini Pro</div>
+                    <div class="model-cost">$0.002/1K tokens</div>
+                    <div class="model-status status-testing">Testing...</div>
+                </div>
+                <div class="model-card moderate">
+                    <div class="model-name">Grok</div>
+                    <div class="model-cost">$0.0027/1K tokens</div>
+                    <div class="model-status status-testing">Testing...</div>
+                </div>
+                <div class="model-card moderate">
+                    <div class="model-name">GPT-3.5</div>
+                    <div class="model-cost">$0.0035/1K tokens</div>
+                    <div class="model-status status-testing">Testing...</div>
+                </div>
+                <div class="model-card free">
+                    <div class="model-name">Local Fallback</div>
+                    <div class="model-cost">FREE</div>
+                    <div class="model-status status-available">Always Available</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>🔑 1. API Key Setup (Optional)</h2>
+            <p>Add API keys to test external models. Skip this to test local fallback only.</p>
+            
+            <label>Claude Haiku API Key (Anthropic):</label>
+            <input type="password" id="anthropicKey" class="api-key-input" placeholder="sk-ant-...">
+            
+            <label>Gemini Pro API Key (Google):</label>
+            <input type="password" id="googleKey" class="api-key-input" placeholder="AIza...">
+            
+            <label>Grok API Key (xAI):</label>
+            <input type="password" id="xaiKey" class="api-key-input" placeholder="xai-...">
+            
+            <label>OpenAI API Key:</label>
+            <input type="password" id="openaiKey" class="api-key-input" placeholder="sk-...">
+            
+            <button onclick="saveAPIKeys()">Save API Keys</button>
+            <button onclick="clearAPIKeys()">Clear All Keys</button>
+            <div id="keyResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🔧 2. Extension Status</h2>
+            <button onclick="checkExtensionStatus()">Check Extension Status</button>
+            <div id="statusResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>📝 3. Test Summarization</h2>
+            <div class="sample-text">
+                <strong>Sample Text for Testing:</strong><br><br>
+                Artificial intelligence has become one of the most transformative technologies of our time, revolutionizing industries from healthcare and finance to transportation and entertainment. Machine learning algorithms can now process vast amounts of data to identify patterns, make predictions, and automate complex decision-making processes. Natural language processing enables computers to understand and generate human language, powering chatbots, translation services, and content creation tools. Computer vision allows machines to interpret and analyze visual information, enabling applications like facial recognition, autonomous vehicles, and medical image analysis. As AI continues to advance, it presents both incredible opportunities and significant challenges, including questions about ethics, privacy, job displacement, and the need for responsible development and deployment of these powerful technologies.
+            </div>
+            <button onclick="testSummarization()">Test Summarization</button>
+            <button onclick="testAllModels()">Test All Available Models</button>
+            <div id="summarizationResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🤔 4. Test Q&A</h2>
+            <input type="text" id="questionInput" class="api-key-input" placeholder="Ask a question about the sample text...">
+            <button onclick="testQA()">Test Q&A</button>
+            <button onclick="testQASample()">Test Sample Questions</button>
+            <div id="qaResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>📊 5. Multi-Tab Simulation</h2>
+            <button onclick="simulateMultiTab()">Simulate Multi-Tab Data</button>
+            <button onclick="testMultiTabSummary()">Test Multi-Tab Summary</button>
+            <button onclick="testMultiTabQA()">Test Multi-Tab Q&A</button>
+            <div id="multiTabResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>💰 6. Cost Analysis</h2>
+            <button onclick="analyzeCosts()">Analyze Token Costs</button>
+            <button onclick="compareModels()">Compare Model Performance</button>
+            <div id="costResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Test functions
+        async function saveAPIKeys() {
+            const resultDiv = document.getElementById('keyResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Saving API keys...';
+
+            try {
+                const keys = {
+                    anthropic: document.getElementById('anthropicKey').value.trim(),
+                    google: document.getElementById('googleKey').value.trim(),
+                    xai: document.getElementById('xaiKey').value.trim(),
+                    openai: document.getElementById('openaiKey').value.trim()
+                };
+
+                let savedCount = 0;
+                for (const [provider, key] of Object.entries(keys)) {
+                    if (key) {
+                        await chrome.storage.local.set({ [`${provider}_api_key`]: key });
+                        savedCount++;
+                    }
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ Saved ${savedCount} API keys to extension storage.`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error saving keys: ${error.message}`;
+            }
+        }
+
+        async function clearAPIKeys() {
+            const resultDiv = document.getElementById('keyResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Clearing API keys...';
+
+            try {
+                await chrome.storage.local.remove(['anthropic_api_key', 'google_api_key', 'xai_api_key', 'openai_api_key']);
+                
+                // Clear input fields
+                document.getElementById('anthropicKey').value = '';
+                document.getElementById('googleKey').value = '';
+                document.getElementById('xaiKey').value = '';
+                document.getElementById('openaiKey').value = '';
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = '✅ All API keys cleared.';
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error clearing keys: ${error.message}`;
+            }
+        }
+
+        async function checkExtensionStatus() {
+            const resultDiv = document.getElementById('statusResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Checking extension status...';
+
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'GET_STATUS'
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Extension Status:
+Initialized: ${response.data.initialized}
+Chrome AI Available: ${response.data.config?.aiProvider === 'chrome' ? 'Yes' : 'No'}
+Fallback Mode: ${response.data.config?.fallbackEnabled ? 'Enabled' : 'Disabled'}
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testSummarization() {
+            const resultDiv = document.getElementById('summarizationResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Testing summarization...';
+
+            try {
+                const testText = document.querySelector('.sample-text').textContent.replace('Sample Text for Testing:', '').trim();
+                
+                const response = await chrome.runtime.sendMessage({
+                    action: 'SUMMARIZE_TEXT',
+                    payload: {
+                        text: testText,
+                        options: { maxLength: 'medium' }
+                    }
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Summarization Test:
+Original Length: ${response.data.originalLength} characters
+Summary Length: ${response.data.summaryLength} characters
+Compression: ${((1 - response.data.summaryLength / response.data.originalLength) * 100).toFixed(1)}%
+
+Summary: ${response.data.summary}
+
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testAllModels() {
+            const resultDiv = document.getElementById('summarizationResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Testing all available models...';
+
+            try {
+                const testText = "This is a test of different AI models for summarization.";
+                const models = ['short', 'medium', 'long'];
+                let results = '🤖 Model Comparison Test:\n\n';
+
+                for (const length of models) {
+                    try {
+                        const response = await chrome.runtime.sendMessage({
+                            action: 'SUMMARIZE_TEXT',
+                            payload: {
+                                text: testText,
+                                options: { maxLength: length }
+                            }
+                        });
+
+                        if (response.success) {
+                            results += `${length.toUpperCase()} Summary (${response.data.summaryLength} chars):
+${response.data.summary}
+
+`;
+                        } else {
+                            results += `${length.toUpperCase()}: Error - ${response.error}\n\n`;
+                        }
+                    } catch (error) {
+                        results += `${length.toUpperCase()}: Error - ${error.message}\n\n`;
+                    }
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = results;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testQA() {
+            const question = document.getElementById('questionInput').value.trim();
+            if (!question) {
+                alert('Please enter a question');
+                return;
+            }
+
+            const resultDiv = document.getElementById('qaResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = `Testing Q&A: "${question}"...`;
+
+            try {
+                const testText = document.querySelector('.sample-text').textContent.replace('Sample Text for Testing:', '').trim();
+                const summaries = [{
+                    title: 'AI Technology Overview',
+                    summary: testText.substring(0, 500) + '...'
+                }];
+
+                const response = await chrome.runtime.sendMessage({
+                    action: 'ANSWER_QUESTION',
+                    payload: {
+                        question: question,
+                        context: summaries
+                    }
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Q&A Test:
+Question: "${question}"
+
+Answer: ${response.data.answer}
+
+Context Used: ${response.data.contextCount} summaries
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testQASample() {
+            const sampleQuestions = [
+                "What are the main applications of AI?",
+                "What challenges does AI present?",
+                "How does machine learning work?",
+                "What is natural language processing?"
+            ];
+
+            const resultDiv = document.getElementById('qaResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Testing sample questions...';
+
+            try {
+                const testText = document.querySelector('.sample-text').textContent.replace('Sample Text for Testing:', '').trim();
+                const summaries = [{
+                    title: 'AI Technology Overview',
+                    summary: testText.substring(0, 500) + '...'
+                }];
+
+                let results = '🤔 Sample Q&A Results:\n\n';
+
+                for (const question of sampleQuestions) {
+                    try {
+                        const response = await chrome.runtime.sendMessage({
+                            action: 'ANSWER_QUESTION',
+                            payload: {
+                                question: question,
+                                context: summaries
+                            }
+                        });
+
+                        if (response.success) {
+                            results += `Q: ${question}\nA: ${response.data.answer}\n\n`;
+                        } else {
+                            results += `❌ Error for "${question}": ${response.error}\n\n`;
+                        }
+                    } catch (error) {
+                        results += `❌ Error for "${question}": ${error.message}\n\n`;
+                    }
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = results;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function simulateMultiTab() {
+            const resultDiv = document.getElementById('multiTabResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Simulating multi-tab data...';
+
+            try {
+                // Simulate collecting data from multiple tabs
+                const simulatedTabs = [
+                    {
+                        url: 'https://example.com/ai-overview',
+                        title: 'AI Technology Overview',
+                        content: 'Artificial intelligence has become one of the most transformative technologies of our time...'
+                    },
+                    {
+                        url: 'https://example.com/machine-learning',
+                        title: 'Machine Learning Basics',
+                        content: 'Machine learning algorithms can process vast amounts of data to identify patterns...'
+                    },
+                    {
+                        url: 'https://example.com/nlp',
+                        title: 'Natural Language Processing',
+                        content: 'Natural language processing enables computers to understand and generate human language...'
+                    }
+                ];
+
+                // Store simulated data
+                for (const tab of simulatedTabs) {
+                    await chrome.runtime.sendMessage({
+                        action: 'PAGE_DATA_EXTRACTED',
+                        payload: tab
+                    });
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ Multi-Tab Simulation Complete:
+Simulated ${simulatedTabs.length} tabs:
+${simulatedTabs.map((tab, i) => `${i + 1}. ${tab.title}`).join('\n')}
+
+Data stored in extension for testing.`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testMultiTabSummary() {
+            const resultDiv = document.getElementById('multiTabResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Testing multi-tab summarization...';
+
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'SUMMARIZE_MULTI_TAB'
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Multi-Tab Summary:
+${response.data.summary}
+
+Total Tabs: ${response.data.tabCount}
+Total Content: ${response.data.totalContentLength} characters
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function testMultiTabQA() {
+            const resultDiv = document.getElementById('multiTabResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Testing multi-tab Q&A...';
+
+            try {
+                const question = "What are the main AI technologies discussed across all tabs?";
+                
+                const response = await chrome.runtime.sendMessage({
+                    action: 'ANSWER_MULTI_TAB_QUESTION',
+                    payload: {
+                        question: question
+                    }
+                });
+
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Multi-Tab Q&A:
+Question: "${question}"
+
+Answer: ${response.data.answer}
+
+Context: ${response.data.contextCount} tabs used
+Timestamp: ${new Date(response.data.timestamp).toLocaleString()}`;
+                } else {
+                    throw new Error(response.error);
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function analyzeCosts() {
+            const resultDiv = document.getElementById('costResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Analyzing costs...';
+
+            try {
+                // Get multi-tab collection
+                const collectionResponse = await chrome.runtime.sendMessage({
+                    action: 'GET_MULTI_TAB_COLLECTION'
+                });
+
+                if (!collectionResponse.success) {
+                    throw new Error('Failed to get multi-tab collection');
+                }
+
+                const collection = collectionResponse.data;
+                const totalTokens = Math.ceil(collection.totalContentLength / 4); // Rough estimate
+
+                const costs = {
+                    'Claude Haiku': (totalTokens * 0.0015 / 1000).toFixed(4),
+                    'Gemini Pro': (totalTokens * 0.002 / 1000).toFixed(4),
+                    'Grok': (totalTokens * 0.0027 / 1000).toFixed(4),
+                    'GPT-3.5': (totalTokens * 0.0035 / 1000).toFixed(4)
+                };
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `💰 Cost Analysis:
+
+Total Content: ${collection.totalContentLength} characters
+Estimated Tokens: ${totalTokens}
+Tab Count: ${collection.tabCount}
+
+Cost per Model (for ${collection.tabCount} tabs):
+${Object.entries(costs).map(([model, cost]) => `${model}: $${cost}`).join('\n')}
+
+Savings vs GPT-3.5:
+Claude Haiku: ${((1 - costs['Claude Haiku'] / costs['GPT-3.5']) * 100).toFixed(1)}% cheaper
+Gemini Pro: ${((1 - costs['Gemini Pro'] / costs['GPT-3.5']) * 100).toFixed(1)}% cheaper
+Grok: ${((1 - costs['Grok'] / costs['GPT-3.5']) * 100).toFixed(1)}% cheaper
+
+Local Fallback: FREE (always available)`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        async function compareModels() {
+            const resultDiv = document.getElementById('costResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Comparing model performance...';
+
+            try {
+                const testText = "This is a test to compare different AI models for summarization performance.";
+                const models = [
+                    { name: 'Claude Haiku', cost: 0.0015 },
+                    { name: 'Gemini Pro', cost: 0.002 },
+                    { name: 'Grok', cost: 0.0027 },
+                    { name: 'GPT-3.5', cost: 0.0035 },
+                    { name: 'Local Fallback', cost: 0 }
+                ];
+
+                let results = '📊 Model Performance Comparison:\n\n';
+
+                for (const model of models) {
+                    const startTime = performance.now();
+                    
+                    try {
+                        const response = await chrome.runtime.sendMessage({
+                            action: 'SUMMARIZE_TEXT',
+                            payload: {
+                                text: testText,
+                                options: { maxLength: 'medium' }
+                            }
+                        });
+                        
+                        const endTime = performance.now();
+                        const duration = (endTime - startTime).toFixed(2);
+                        
+                        if (response.success) {
+                            const compression = ((1 - response.data.summaryLength / response.data.originalLength) * 100).toFixed(1);
+                            results += `${model.name}:
+Duration: ${duration}ms
+Compression: ${compression}%
+Cost: $${model.cost}/1K tokens
+Summary: ${response.data.summary}
+\n`;
+                        } else {
+                            results += `${model.name}: Error - ${response.error}\n\n`;
+                        }
+                    } catch (error) {
+                        results += `${model.name}: Error - ${error.message}\n\n`;
+                    }
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = results;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+            }
+        }
+
+        // Auto-fill sample question
+        document.getElementById('questionInput').addEventListener('focus', function() {
+            if (!this.value) {
+                this.value = 'What are the main applications of AI?';
+            }
+        });
+
+        // Auto-run status check on load
+        window.addEventListener('load', () => {
+            setTimeout(checkExtensionStatus, 1000);
+        });
+    </script>
+</body>
+</html>

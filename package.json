@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm run copy-manifest",
+    "copy-manifest": "copy src\\manifest.json dist\\manifest.json",
     "build:watch": "vite build --watch",
     "preview": "vite preview",
     "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",

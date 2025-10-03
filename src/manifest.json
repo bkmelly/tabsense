@@ -36,17 +36,18 @@
       "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_end",
-      "all_frames": false
+      "all_frames": false,
+      "type": "module"
     }
   ],
   
   
-  "web_accessible_resources": [
-    {
-      "resources": ["assets/images/*"],
-      "matches": ["<all_urls>"]
-    }
-  ],
+      "web_accessible_resources": [
+        {
+          "resources": ["assets/images/*", "src/ui/test/test-ai.html"],
+          "matches": ["<all_urls>"]
+        }
+      ],
   
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self';"
