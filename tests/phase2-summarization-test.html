@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 2: Summarization Engine Test</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 30px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #007bff;
+      padding-bottom: 10px;
+    }
+    .controls {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .control-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: inline-block;
+      width: 150px;
+      font-weight: bold;
+      color: #555;
+    }
+    input, select {
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    input[type="text"] {
+      width: 400px;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .output {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .output h2 {
+      margin-top: 0;
+      color: #007bff;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 8px;
+    }
+    pre {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      border-left: 4px solid #28a745;
+    }
+    .summary-box {
+      background: #e7f3ff;
+      padding: 15px;
+      border-radius: 4px;
+      border-left: 4px solid #007bff;
+      margin: 10px 0;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin: 15px 0;
+    }
+    .stat-item {
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+    }
+    .stat-value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #007bff;
+    }
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 4px;
+      border-left: 4px solid #dc3545;
+    }
+    .success {
+      background: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 4px;
+      border-left: 4px solid #28a745;
+    }
+    .length-comparison {
+      display: flex;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .length-box {
+      flex: 1;
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+    }
+    .length-box h3 {
+      margin-top: 0;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h1>🚀 Phase 2: Summarization Engine Test</h1>
+  
+  <div class="controls">
+    <div class="control-group">
+      <label>API Key:</label>
+      <input type="text" id="apiKey" placeholder="Enter Gemini API key (optional for testing)" style="width: 400px;">
+    </div>
+    
+    <div class="control-group">
+      <label>Summary Length:</label>
+      <select id="summaryLength">
+        <option value="short">Short (~100 words)</option>
+        <option value="medium" selected>Medium (~300 words)</option>
+        <option value="long">Long (~500 words)</option>
+      </select>
+    </div>
+    
+    <div class="control-group">
+      <button onclick="testCurrentPage()">Test on Current Page</button>
+      <button onclick="testAllLengths()">Test All Lengths</button>
+      <button onclick="clearOutput()">Clear Output</button>
+    </div>
+  </div>
+  
+  <div id="output"></div>
+
+  <script type="module">
+    // Import modules
+    import { ContentExtractor } from '../src/lib/contentExtractor.js';
+    import { ContentCleaner } from '../src/lib/contentCleaner.js';
+    import { Chunker } from '../src/lib/chunker.js';
+    import { SummaryMerger } from '../src/lib/summaryMerger.js';
+    import { Summarizer } from '../src/lib/summarizer.js';
+    
+    // Make functions globally available
+    window.testCurrentPage = async function() {
+      const apiKey = document.getElementById('apiKey').value.trim() || null;
+      const length = document.getElementById('summaryLength').value;
+      
+      const output = document.getElementById('output');
+      output.innerHTML = '<div class="success">⏳ Processing...</div>';
+      
+      try {
+        // Phase 1: Extract content
+        console.log('[Test] Phase 1: Extracting content...');
+        const extractor = new ContentExtractor();
+        const cleaner = new ContentCleaner();
+        
+        const extracted = extractor.extract(document);
+        const cleaned = cleaner.clean(extracted.content);
+        
+        // Phase 2: Summarize
+        console.log('[Test] Phase 2: Summarizing...');
+        const summarizer = new Summarizer({
+          apiKey: apiKey,
+          model: 'gemini-2.5-flash',
+          maxTokens: 1500,
+          minSimilarity: 0.8
+        });
+        
+        const startTime = Date.now();
+        const result = await summarizer.summarize(cleaned, extracted.metadata, length);
+        const endTime = Date.now();
+        
+        if (result.success) {
+          displayResult(result, extracted, endTime - startTime);
+        } else {
+          throw new Error(result.error);
+        }
+        
+      } catch (error) {
+        output.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+        console.error('[Test] Error:', error);
+      }
+    };
+    
+    window.testAllLengths = async function() {
+      const apiKey = document.getElementById('apiKey').value.trim() || null;
+      
+      const output = document.getElementById('output');
+      output.innerHTML = '<div class="success">⏳ Testing all lengths...</div>';
+      
+      try {
+        // Extract once
+        const extractor = new ContentExtractor();
+        const cleaner = new ContentCleaner();
+        const extracted = extractor.extract(document);
+        const cleaned = cleaner.clean(extracted.content);
+        
+        // Summarize at all lengths
+        const summarizer = new Summarizer({
+          apiKey: apiKey,
+          model: 'gemini-2.5-flash',
+          maxTokens: 1500,
+          minSimilarity: 0.8
+        });
+        
+        const lengths = ['short', 'medium', 'long'];
+        const results = {};
+        
+        for (const length of lengths) {
+          console.log(`[Test] Summarizing: ${length}`);
+          const startTime = Date.now();
+          const result = await summarizer.summarize(cleaned, extracted.metadata, length);
+          const endTime = Date.now();
+          
+          results[length] = {
+            ...result,
+            time: endTime - startTime
+          };
+        }
+        
+        displayComparison(results, extracted);
+        
+      } catch (error) {
+        output.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+        console.error('[Test] Error:', error);
+      }
+    };
+    
+    window.clearOutput = function() {
+      document.getElementById('output').innerHTML = '';
+    };
+    
+    function displayResult(result, extracted, time) {
+      const output = document.getElementById('output');
+      
+      const html = `
+        <div class="output">
+          <h2>✅ Summarization Complete (${time}ms)</h2>
+          
+          <div class="stats">
+            <div class="stat-item">
+              <div class="stat-label">Word Count</div>
+              <div class="stat-value">${result.stats.wordCount}</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Sentences</div>
+              <div class="stat-value">${result.stats.sentenceCount}</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Chunks</div>
+              <div class="stat-value">${result.metadata.chunkCount}</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Model</div>
+              <div class="stat-value" style="font-size: 12px;">${result.metadata.model}</div>
+            </div>
+          </div>
+          
+          <div class="summary-box">
+            <strong>Summary (${result.metadata.length}):</strong><br><br>
+            ${result.summary}
+          </div>
+          
+          <details style="margin-top: 20px;">
+            <summary style="cursor: pointer; font-weight: bold;">📊 Full Stats</summary>
+            <pre>${JSON.stringify(result, null, 2)}</pre>
+          </details>
+          
+          <details>
+            <summary style="cursor: pointer; font-weight: bold;">📄 Extracted Content</summary>
+            <pre>${JSON.stringify(extracted, null, 2)}</pre>
+          </details>
+        </div>
+      `;
+      
+      output.innerHTML = html;
+    }
+    
+    function displayComparison(results, extracted) {
+      const output = document.getElementById('output');
+      
+      const html = `
+        <div class="output">
+          <h2>📊 Length Comparison</h2>
+          
+          <div class="length-comparison">
+            ${['short', 'medium', 'long'].map(length => {
+              const result = results[length];
+              return `
+                <div class="length-box">
+                  <h3>${length.toUpperCase()}</h3>
+                  <div class="stat-item" style="margin-bottom: 10px;">
+                    <div class="stat-label">Words / Sentences / Time</div>
+                    <div class="stat-value" style="font-size: 16px;">
+                      ${result.stats.wordCount} / ${result.stats.sentenceCount} / ${result.time}ms
+                    </div>
+                  </div>
+                  <div style="background: white; padding: 10px; border-radius: 4px; font-size: 13px; line-height: 1.6;">
+                    ${result.summary}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          
+          <details style="margin-top: 20px;">
+            <summary style="cursor: pointer; font-weight: bold;">📄 Full Results</summary>
+            <pre>${JSON.stringify(results, null, 2)}</pre>
+          </details>
+        </div>
+      `;
+      
+      output.innerHTML = html;
+    }
+    
+    console.log('✅ Phase 2 test page ready!');
+    console.log('💡 Tip: Enter your Gemini API key to test AI summarization, or leave blank for extractive fallback.');
+  </script>
+</body>
+</html>
+

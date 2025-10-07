@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adaptive Summarization Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .test-section h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        .page-type {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .content-preview {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+        }
+        .summary-result {
+            background: #f0f8f0;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #4caf50;
+        }
+        .classification-info {
+            background: #fff3e0;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 0.9em;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎯 Adaptive Summarization Test Suite</h1>
+    <p>This page tests the adaptive summarization engine with different page types and content structures.</p>
+
+    <div class="test-section">
+        <h2>📰 News Article Test</h2>
+        <div class="page-type">Expected Type: News</div>
+        <div class="content-preview" id="news-content">
+            <h1>Breaking: Major Tech Company Announces Revolutionary AI Breakthrough</h1>
+            <p><strong>By Sarah Johnson, Technology Reporter</strong> | <em>Published: March 15, 2024</em></p>
+            <p>San Francisco, CA - In a groundbreaking announcement today, TechCorp revealed a new artificial intelligence system that promises to revolutionize how we interact with technology.</p>
+            <p>The new AI model, called "Nexus-7," demonstrates unprecedented capabilities in natural language understanding and generation. According to CEO Michael Chen, "This represents a quantum leap forward in AI technology."</p>
+            <p>Key features include:</p>
+            <ul>
+                <li>Real-time language translation across 50+ languages</li>
+                <li>Advanced reasoning capabilities surpassing human performance in standardized tests</li>
+                <li>Integration with existing software ecosystems</li>
+            </ul>
+            <p>The announcement comes after months of speculation in the tech industry. Analysts predict this could reshape the competitive landscape.</p>
+            <blockquote>"This is the most significant AI advancement since the introduction of large language models," said Dr. Emily Rodriguez, AI researcher at Stanford University.</blockquote>
+        </div>
+        <button onclick="testSummarization('news')">Test News Summarization</button>
+        <div id="news-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>📚 Wikipedia/Reference Test</h2>
+        <div class="page-type">Expected Type: Reference</div>
+        <div class="content-preview" id="wiki-content">
+            <h1>Kenya</h1>
+            <p><strong>Kenya</strong>, officially the <strong>Republic of Kenya</strong>, is a country in East Africa. With a population of more than 52 million people, Kenya is the world's 27th-most populous country and the 7th-most populous in Africa.</p>
+            
+            <h2>Geography</h2>
+            <p>Kenya's capital and largest city is Nairobi, while its oldest city and first capital is the coastal city of Mombasa. Kisumu City is the third-largest city and also an inland port on Lake Victoria.</p>
+            
+            <h2>Economy</h2>
+            <p>Kenya's economy is the largest in eastern and central Africa, with Nairobi serving as a major regional commercial hub. Agriculture is the largest sector: tea and coffee are traditional cash crops, while fresh flowers are a fast-growing export.</p>
+            
+            <h2>History</h2>
+            <p>Kenya gained independence from Britain on 12 December 1963. The country has a multi-party political system, with the Kenya African National Union (KANU) having been the dominant party for much of its history.</p>
+            
+            <h2>Demographics</h2>
+            <p>Kenya has a diverse population that includes most major ethnic, racial and linguistic groups found in Africa. The country has approximately 42 different ethnic groups with distinct languages, cultures and traditions.</p>
+        </div>
+        <button onclick="testSummarization('wiki')">Test Reference Summarization</button>
+        <div id="wiki-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>💭 Blog/Opinion Test</h2>
+        <div class="page-type">Expected Type: Blog</div>
+        <div class="content-preview" id="blog-content">
+            <h1>The Future of Remote Work: My Personal Take</h1>
+            <p><em>By Alex Thompson, Software Engineer</em> | <em>March 10, 2024</em></p>
+            <p>After three years of working remotely, I've come to some conclusions about the future of work that might surprise you.</p>
+            <p><strong>My main argument:</strong> Remote work isn't just a trend—it's a fundamental shift in how we think about productivity and work-life balance.</p>
+            <p>Here's why I believe this:</p>
+            <ul>
+                <li><strong>Productivity actually increases</strong> when people have control over their environment</li>
+                <li><strong>Companies save money</strong> on office space and can hire globally</li>
+                <li><strong>Employees are happier</strong> with flexible schedules and no commute</li>
+            </ul>
+            <p>However, I also recognize the challenges. Some people thrive in office environments, and collaboration can be more difficult when everyone's distributed.</p>
+            <p><strong>My stance:</strong> The future will be hybrid, not purely remote. Companies that figure out the right balance will have a significant competitive advantage.</p>
+            <p>What do you think? Are we heading toward a remote-first world, or will we return to traditional office culture?</p>
+        </div>
+        <button onclick="testSummarization('blog')">Test Blog Summarization</button>
+        <div id="blog-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>🛒 E-commerce Test</h2>
+        <div class="page-type">Expected Type: E-commerce</div>
+        <div class="content-preview" id="ecommerce-content">
+            <h1>MacBook Pro 16-inch - Space Gray</h1>
+            <div style="display: flex; gap: 20px;">
+                <div style="flex: 1;">
+                    <h2>Product Details</h2>
+                    <p><strong>Price:</strong> $2,499.00</p>
+                    <p><strong>Sale Price:</strong> $2,199.00 <span style="color: red;">(Save $300!)</span></p>
+                    <p><strong>Availability:</strong> In Stock (5 left)</p>
+                    
+                    <h3>Key Features:</h3>
+                    <ul>
+                        <li>Apple M2 Pro chip with 12-core CPU</li>
+                        <li>19-core GPU for graphics-intensive tasks</li>
+                        <li>16GB unified memory</li>
+                        <li>512GB SSD storage</li>
+                        <li>16.2-inch Liquid Retina XDR display</li>
+                        <li>Up to 22 hours battery life</li>
+                    </ul>
+                    
+                    <h3>What's Included:</h3>
+                    <ul>
+                        <li>MacBook Pro 16-inch</li>
+                        <li>140W USB-C Power Adapter</li>
+                        <li>USB-C to MagSafe 3 Cable (2m)</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div style="background: #e8f5e8; padding: 15px; border-radius: 4px; margin: 20px 0;">
+                <h3>Special Offers:</h3>
+                <p>• Free shipping on orders over $100</p>
+                <p>• 2-year AppleCare+ for $199 (regularly $399)</p>
+                <p>• Trade in your old Mac and save up to $800</p>
+            </div>
+            
+            <button style="background: #4caf50; color: white; padding: 15px 30px; font-size: 16px; border: none; border-radius: 4px; cursor: pointer;">
+                Add to Cart - $2,199.00
+            </button>
+        </div>
+        <button onclick="testSummarization('ecommerce')">Test E-commerce Summarization</button>
+        <div id="ecommerce-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>🔬 Academic Paper Test</h2>
+        <div class="page-type">Expected Type: Academic</div>
+        <div class="content-preview" id="academic-content">
+            <h1>Machine Learning Approaches to Climate Change Prediction: A Comparative Study</h1>
+            <p><strong>Authors:</strong> Dr. Maria Santos, Prof. James Wilson, Dr. Chen Li</p>
+            <p><strong>Institution:</strong> Stanford University, Department of Environmental Science</p>
+            <p><strong>Published:</strong> Journal of Climate Research, Vol. 45, Issue 3, 2024</p>
+            
+            <h2>Abstract</h2>
+            <p>This study presents a comprehensive comparison of machine learning algorithms for predicting climate change patterns. We evaluated five different approaches over a 20-year dataset from 2000-2020.</p>
+            
+            <h2>Research Question</h2>
+            <p>Which machine learning algorithm provides the most accurate predictions for temperature and precipitation changes over 10-year periods?</p>
+            
+            <h2>Methodology</h2>
+            <p>We employed a rigorous experimental design using cross-validation and time-series analysis. Data was collected from 150 weather stations across North America.</p>
+            
+            <h2>Key Findings</h2>
+            <ul>
+                <li>Random Forest algorithms achieved 94% accuracy in temperature prediction</li>
+                <li>Neural networks showed superior performance for precipitation forecasting</li>
+                <li>Support Vector Machines provided the most consistent results across different climate zones</li>
+            </ul>
+            
+            <h2>Implications</h2>
+            <p>These findings suggest that ensemble methods combining multiple algorithms may provide the most reliable climate predictions for policy-making and environmental planning.</p>
+        </div>
+        <button onclick="testSummarization('academic')">Test Academic Summarization</button>
+        <div id="academic-result"></div>
+    </div>
+
+    <script type="module">
+        // Import the adaptive summarization modules
+        import { PageClassifier } from '../src/lib/pageClassifier.js';
+        import { AdaptiveSummarizer } from '../src/lib/adaptiveSummarizer.js';
+
+        // Make functions globally available
+        window.testSummarization = async function(type) {
+            const contentElement = document.getElementById(`${type}-content`);
+            const resultElement = document.getElementById(`${type}-result`);
+            
+            if (!contentElement) {
+                resultElement.innerHTML = '<div class="error">Content element not found</div>';
+                return;
+            }
+
+            const content = contentElement.textContent || contentElement.innerText;
+            
+            try {
+                resultElement.innerHTML = '<p>🔄 Analyzing and summarizing...</p>';
+                
+                // Create page data
+                const pageData = {
+                    url: `https://example.com/${type}`,
+                    title: contentElement.querySelector('h1')?.textContent || `${type} Test Page`,
+                    content: content,
+                    metadata: {
+                        description: `Test ${type} content for adaptive summarization`,
+                        author: 'Test Author'
+                    }
+                };
+
+                // Test classification
+                const classifier = new PageClassifier();
+                const classification = classifier.classify(pageData);
+                
+                // Test adaptive summarization (mock API key for testing)
+                const adaptiveSummarizer = new AdaptiveSummarizer('test-key', 'gemini-2.0-flash');
+                const result = await adaptiveSummarizer.summarize(pageData, 'medium');
+                
+                // Display results
+                resultElement.innerHTML = `
+                    <div class="classification-info">
+                        <strong>Classification:</strong> ${classification.type} (confidence: ${(classification.confidence * 100).toFixed(1)}%)<br>
+                        <strong>Reasoning:</strong> ${classification.reasoning.join(', ')}
+                    </div>
+                    <div class="summary-result">
+                        <h4>Adaptive Summary:</h4>
+                        <div style="white-space: pre-wrap;">${result.summary || 'No summary generated'}</div>
+                        <p><strong>Page Type:</strong> ${result.classification?.type || 'unknown'}</p>
+                        <p><strong>Template:</strong> ${result.template?.structure || 'generic'}</p>
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('Test error:', error);
+                resultElement.innerHTML = `
+                    <div class="error">
+                        <strong>Error:</strong> ${error.message}<br>
+                        <em>Note: This test requires the adaptive summarization modules to be properly loaded.</em>
+                    </div>
+                `;
+            }
+        };
+
+        // Initialize test page
+        console.log('🎯 Adaptive Summarization Test Page loaded');
+        console.log('Available test types: news, wiki, blog, ecommerce, academic');
+    </script>
+</body>
+</html>

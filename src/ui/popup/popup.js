@@ -40,8 +40,16 @@ async function checkExtensionStatus() {
 async function testSummarization() {
   try {
     const response = await chrome.runtime.sendMessage({
-      action: 'SUMMARIZE_TEXT',
-      payload: { text: SAMPLE_TEXT, options: { maxLength: 'medium' } }
+      action: 'ADAPTIVE_SUMMARIZE',
+      payload: {
+        tabData: {
+          title: 'Test Page',
+          url: 'https://example.com/test',
+          content: SAMPLE_TEXT
+        },
+        length: document.getElementById('summaryLength')?.value || 'short',
+        metadata: {}
+      }
     });
     
     // Debug: log the full response
@@ -241,10 +249,18 @@ async function refreshTabSummaries() {
               console.log('Attempting summarization for:', tab.title);
               
               const summaryResponse = await chrome.runtime.sendMessage({
-                action: 'SUMMARIZE_TEXT',
+                action: 'ADAPTIVE_SUMMARIZE',
                 payload: {
-                  text: tab.content || '',
-                  options: { maxLength: 'short' }
+                  tabData: {
+                    title: tab.title || '',
+                    url: tab.url || '',
+                    content: tab.content || ''
+                  },
+                  length: document.getElementById('summaryLength').value || 'short',
+                  metadata: {
+                    description: tab.metadata?.description || '',
+                    author: tab.metadata?.author || ''
+                  }
                 }
               });
               
@@ -867,10 +883,15 @@ async function testAIModels() {
       
       // Test summarization with real AI
       const testResponse = await chrome.runtime.sendMessage({
-        action: 'SUMMARIZE_TEXT',
+        action: 'ADAPTIVE_SUMMARIZE',
         payload: {
-          text: 'This is a test of the AI summarization capabilities. The system should be able to process this text and provide a meaningful summary.',
-          options: { maxLength: 'short' }
+          tabData: {
+            title: 'AI Test Page',
+            url: 'https://example.com/ai-test',
+            content: 'This is a test of the AI summarization capabilities. The system should be able to process this text and provide a meaningful summary.'
+          },
+          length: 'short',
+          metadata: {}
         }
       });
       
