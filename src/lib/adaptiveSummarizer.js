@@ -197,6 +197,63 @@ Focus on scientific accuracy and research methodology.`,
         sections: ['research_question', 'methodology', 'findings', 'implications']
       },
       
+      youtube: {
+        short: `Create a YouTube video summary with comment analysis (80-120 words):
+
+**Video Overview:** [1-2 sentences: What is this video about?]
+
+**Key Details:**
+• **Channel:** [Channel name]
+• **Views:** [View count]
+• **Main Topic:** [Core subject]
+
+**Comment Analysis:**
+• **General Sentiment:** [What are people saying in general?]
+• **Main Themes:** [Top 2-3 discussion themes]
+
+Focus on video content and audience reaction.`,
+
+        medium: `Create a comprehensive YouTube video summary with layered comment analysis (300 words):
+
+**Video Overview:** [2-3 sentences: What is this video about? Key points covered]
+
+**Key Details:**
+• **Channel:** [Channel name and credibility]
+• **Views:** [View count and engagement level]
+• **Main Topic:** [Core subject and context]
+
+**Comment Analysis - Tier 1 (TL;DR):**
+[What are people saying in general? 1-2 sentences summarizing overall comment sentiment]
+
+**Comment Analysis - Tier 2 (Sentiment Breakdown):**
+• **Positive:** [Percentage] - [Brief description of positive themes]
+• **Negative:** [Percentage] - [Brief description of negative themes]  
+• **Neutral/Mixed:** [Percentage] - [Brief description of neutral themes]
+
+**Comment Analysis - Tier 3 (Argument Themes):**
+• **Theme 1:** [Topic] - [Brief description of this argument cluster]
+• **Theme 2:** [Topic] - [Brief description of this argument cluster]
+• **Theme 3:** [Topic] - [Brief description of this argument cluster]
+
+**Comment Analysis - Tier 4 (Representative Quotes):**
+• **"[Quote from top comment]"** - [Author] ([likes] likes)
+• **"[Quote from contrasting comment]"** - [Author] ([likes] likes)
+
+**External Context:** [Use external context if provided - background information, recent developments]
+
+IMPORTANT RULES:
+- Use • for ALL bullet points consistently
+- Focus on VIDEO CONTENT first, then comment analysis
+- Include actual comment quotes (not paraphrased)
+- Show comment author names and like counts
+- Analyze sentiment patterns, not individual opinions
+- ALWAYS include External Context section if provided
+
+Focus on video content quality and audience engagement patterns.`,
+
+        sections: ['overview', 'key_details', 'comment_analysis_tldr', 'comment_analysis_sentiment', 'comment_analysis_themes', 'comment_analysis_quotes', 'external_context']
+      },
+      
       generic: {
         prompt: `You are a general content summarizer. Create a structured summary.
 

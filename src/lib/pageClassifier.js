@@ -67,6 +67,17 @@ export class PageClassifier {
         selectors: ['.research', '.paper', '.study', '.academic'],
         urlPatterns: [/research/, /academic/, /journal/, /paper/],
         titlePatterns: [/research/, /study/, /paper/]
+      },
+      
+      youtube: {
+        indicators: [
+          'video', 'youtube', 'watch', 'channel', 'subscribe',
+          'views', 'likes', 'comments', 'playlist', 'upload'
+        ],
+        selectors: ['#player', '#primary', '#comments', '.ytd-video-primary-info-renderer'],
+        urlPatterns: [/youtube\.com\/watch/, /youtu\.be/, /youtube\.com\/channel/],
+        titlePatterns: [/video/, /speech/, /address/, /interview/, /debate/],
+        priority: 15  // Highest priority for YouTube videos
       }
     };
   }
