@@ -139,21 +139,27 @@ export class SummaryMerger {
 
   /**
    * Apply length constraints based on summary type
+   * TEMPLATE-AWARE: Never cut off mid-section, always complete template structure
    */
-  applyLengthConstraint(sentences, length) {
+  applyLengthConstraint(sentences, length, templateSections = null) {
     let targetWords;
     
     switch (length) {
       case 'short':
-        targetWords = 100;
+        targetWords = 180;  // Increased from 100
         break;
       case 'long':
-        targetWords = 500;
+        targetWords = 950;  // Increased from 500
         break;
       case 'medium':
       default:
-        targetWords = 300;
+        targetWords = 700;  // Increased from 300
         break;
+    }
+    
+    // If we have template sections, ensure we don't cut off mid-section
+    if (templateSections && templateSections.length > 0) {
+      return this.applyTemplateAwareConstraint(sentences, targetWords, templateSections);
     }
     
     // Count words and trim if necessary
@@ -177,6 +183,54 @@ export class SummaryMerger {
     }
     
     console.log(`[SummaryMerger] Target words: ${targetWords}, Actual words: ${totalWords}`);
+    return result;
+  }
+
+  /**
+   * Apply template-aware constraints - never cut off mid-section
+   */
+  applyTemplateAwareConstraint(sentences, targetWords, templateSections) {
+    let totalWords = 0;
+    const result = [];
+    let currentSection = '';
+    let sectionComplete = true;
+    
+    for (const sentenceObj of sentences) {
+      const words = sentenceObj.text.split(/\s+/).length;
+      
+      // Check if this sentence starts a new section
+      const text = sentenceObj.text.trim();
+      const isSectionHeader = templateSections.some(section => 
+        text.includes(`**${section}**`) || text.includes(`**${section.replace(/_/g, ' ')}**`)
+      );
+      
+      if (isSectionHeader) {
+        // If we're starting a new section and we're close to target, stop here
+        if (totalWords > targetWords * 0.8 && result.length > 0) {
+          console.log(`[SummaryMerger] Template-aware: Stopping before new section to avoid cut-off`);
+          break;
+        }
+        currentSection = text;
+        sectionComplete = false;
+      }
+      
+      // Add the sentence
+      result.push(sentenceObj);
+      totalWords += words;
+      
+      // Mark section as complete if we have substantial content
+      if (words > 10) {
+        sectionComplete = true;
+      }
+      
+      // Only stop if we're significantly over target AND current section is complete
+      if (totalWords > targetWords * 1.2 && sectionComplete) {
+        console.log(`[SummaryMerger] Template-aware: Target exceeded but section complete`);
+        break;
+      }
+    }
+    
+    console.log(`[SummaryMerger] Template-aware: Target words: ${targetWords}, Actual words: ${totalWords}, Sections: ${templateSections.length}`);
     return result;
   }
 

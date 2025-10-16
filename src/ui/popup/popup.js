@@ -100,7 +100,20 @@ async function refreshTabSummaries() {
     console.log('Container tagName:', container.tagName);
     console.log('Container className:', container.className);
     console.log('Container id:', container.id);
-    container.innerHTML = '<div class="loading-tabs">🔄 Extracting and summarizing tabs...</div>';
+    
+    // Don't clear existing summaries - just add loading indicator for new tabs
+    const existingSummaries = container.querySelectorAll('.tab-list-item');
+    if (existingSummaries.length > 0) {
+      // Add loading indicator above existing summaries
+      const loadingDiv = document.createElement('div');
+      loadingDiv.className = 'loading-new-tabs';
+      loadingDiv.style.cssText = 'background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 8px; margin: 5px; border-radius: 4px; font-size: 12px;';
+      loadingDiv.textContent = '🔄 Checking for new tabs...';
+      container.insertBefore(loadingDiv, container.firstChild);
+    } else {
+      // No existing summaries, show full loading
+      container.innerHTML = '<div class="loading-tabs">🔄 Checking for new tabs...</div>';
+    }
     
     // Test service worker connection first
     console.log('Testing service worker connection...');
@@ -218,21 +231,59 @@ async function refreshTabSummaries() {
           return true;
         });
         
-        // Generate summaries for ALL tabs but show tab list with infinite scroll (3 at a time)
-        const allTabs = filteredTabs; // Process all filtered tabs
+        // Get existing tab URLs to avoid duplicates
+        const existingTabUrls = new Set();
+        const existingTabElements = container.querySelectorAll('.tab-list-item');
+        existingTabElements.forEach(element => {
+          const urlElement = element.querySelector('div[style*="font-size: 10px"]');
+          if (urlElement) {
+            existingTabUrls.add(urlElement.textContent.trim());
+          }
+        });
         
-        console.log(`Processing ${allTabs.length} tabs, will show tab list with infinite scroll (3 at a time)`);
+        // Check which tabs already have cached summaries (more reliable than DOM elements)
+        const tabsWithCachedSummaries = new Set();
         
-        // Update the info div with infinite scroll info
+        // Get cached summary status for all tabs in one call
+        const cacheCheckResponse = await chrome.runtime.sendMessage({
+          action: 'CHECK_CACHED_SUMMARIES',
+          payload: {
+            tabs: filteredTabs.map(tab => ({
+              title: tab.title || '',
+              url: tab.url || '',
+              content: tab.content || ''
+            })),
+            length: document.getElementById('summaryLength')?.value || 'short'
+          }
+        });
+        
+        if (cacheCheckResponse && cacheCheckResponse.success) {
+          cacheCheckResponse.data.cachedTabs.forEach(cachedTab => {
+            tabsWithCachedSummaries.add(cachedTab.url);
+            console.log(`Tab ${cachedTab.title} has cached summary`);
+          });
+        }
+        
+        // Filter out tabs that already have summaries (either in DOM or cached)
+        const newTabs = filteredTabs.filter(tab => 
+          !existingTabUrls.has(tab.url) && !tabsWithCachedSummaries.has(tab.url)
+        );
+        
+        console.log(`Found ${filteredTabs.length} total tabs, ${newTabs.length} new tabs to process`);
+        
+        // Process only NEW tabs to generate summaries
+        console.log(`Processing ${newTabs.length} new tabs`);
+        
+        // Update the info div with new tabs info
         infoDiv.innerHTML = `
-          📊 Found ${allTabs.length} filtered tabs (${tabs.length} total)<br>
-          <small>🔄 Scroll down to load more tabs (3 at a time)</small>
+          📊 Found ${newTabs.length} new tabs to process (${filteredTabs.length} total)<br>
+          <small>🔄 Processing new tabs only...</small>
         `;
         
-        // Process ALL tabs to generate summaries
-        const allSummaries = [];
+        // Process only NEW tabs to generate summaries
+        const newSummaries = [];
         
-        for (const tab of allTabs) {
+        for (const tab of newTabs) {
           try {
             // Ensure tab has required properties
             if (!tab.title || !tab.url) {
@@ -256,7 +307,7 @@ async function refreshTabSummaries() {
                     url: tab.url || '',
                     content: tab.content || ''
                   },
-                  length: document.getElementById('summaryLength').value || 'short',
+                  length: document.getElementById('summaryLength')?.value || 'short',
                   metadata: {
                     description: tab.metadata?.description || '',
                     author: tab.metadata?.author || ''
@@ -331,7 +382,7 @@ async function refreshTabSummaries() {
               tab: tab,
               summary: summary
             };
-            allSummaries.push(summaryData);
+            newSummaries.push(summaryData);
             
             console.log('Summary generated for:', tab.title);
             
@@ -353,306 +404,52 @@ async function refreshTabSummaries() {
           }
         }
         
-        console.log('All tabs processed, implementing infinite scroll...');
+        console.log('New tabs processed, adding to existing summaries...');
         
-        // Virtual scrolling implementation - always show 3 tabs, scroll to see more
-        let currentIndex = 0;
-        const visibleTabs = 3;
-        const tabHeight = 60; // Approximate height per tab
-        
-        // Function to create tab list item
-        const createTabListItem = (summaryData, index) => {
-          const tab = summaryData.tab;
-          const summary = summaryData.summary;
-          
-          const tabListItem = document.createElement('div');
-          tabListItem.className = 'tab-list-item';
-          tabListItem.style.cssText = `
-            display: flex;
-            align-items: center;
-            padding: 8px;
-            margin: 4px 0;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            background: #f9f9f9;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            height: ${tabHeight - 8}px;
-            position: relative;
-          `;
-          
-          // Get favicon with fallback
-          let faviconUrl = '';
-          try {
-            const url = new URL(tab.url);
-            faviconUrl = `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=16`;
-          } catch (e) {
-            faviconUrl = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="%23666"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
-          }
-          
-          tabListItem.innerHTML = `
-            <img src="${faviconUrl}" style="width: 16px; height: 16px; margin-right: 8px; border-radius: 2px;">
-            <div style="flex: 1; min-width: 0;">
-              <div style="font-weight: bold; font-size: 12px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${(tab.title || 'Untitled').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}</div>
-              <div style="font-size: 10px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${tab.url}</div>
-            </div>
-            <div style="font-size: 10px; color: #999; margin-left: 8px;">📄 ${index + 1}</div>
-          `;
-          
-          // Add error handler for favicon
-          const faviconImg = tabListItem.querySelector('img');
-          faviconImg.addEventListener('error', () => {
-            faviconImg.style.display = 'none';
-          });
-          
-          // Click handler to show summary in modal
-          tabListItem.addEventListener('click', () => {
-            showSummary(summaryData);
-          });
-          
-          // Hover effect
-          tabListItem.addEventListener('mouseenter', () => {
-            tabListItem.style.backgroundColor = '#e9ecef';
-          });
-          tabListItem.addEventListener('mouseleave', () => {
-            tabListItem.style.backgroundColor = '#f9f9f9';
-          });
-          
-          return tabListItem;
-        };
-        
-        // Function to render visible tabs (always exactly 3)
-        let renderVisibleTabs = () => {
-          // Clear all existing tabs
-          const existingTabs = container.querySelectorAll('.tab-list-item');
-          existingTabs.forEach(tab => tab.remove());
-          
-          // Render exactly 3 tabs starting from currentIndex
-          for (let i = 0; i < visibleTabs; i++) {
-            const tabIndex = currentIndex + i;
-            if (tabIndex < allSummaries.length) {
-              const tabListItem = createTabListItem(allSummaries[tabIndex], tabIndex);
-              container.appendChild(tabListItem);
-            }
-          }
-          
-          console.log(`Rendered tabs ${currentIndex + 1}-${Math.min(currentIndex + visibleTabs, allSummaries.length)} of ${allSummaries.length}`);
-        };
-        
-        // Create a separate scrollable container for tab list
-        const tabListContainer = document.createElement('div');
-        tabListContainer.className = 'tab-list-container';
-        tabListContainer.style.cssText = `
-          max-height: 250px;
-          overflow-y: auto;
-          padding: 10px;
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          background: white;
-          position: relative;
-          margin: 8px 0;
-        `;
-        
-        // Create virtual scroll spacer (makes the container scrollable)
-        const scrollSpacer = document.createElement('div');
-        scrollSpacer.className = 'scroll-spacer';
-        scrollSpacer.style.cssText = `
-          height: ${allSummaries.length * tabHeight}px;
-          position: relative;
-        `;
-        tabListContainer.appendChild(scrollSpacer);
-        
-        // Create wrapper for tab items (positioned absolutely)
-        const tabItemsWrapper = document.createElement('div');
-        tabItemsWrapper.className = 'tab-items-wrapper';
-        tabItemsWrapper.style.cssText = `
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-        `;
-        scrollSpacer.appendChild(tabItemsWrapper);
-        
-        // Update renderVisibleTabs to use tabItemsWrapper with absolute positioning
-        const originalRenderVisibleTabs = renderVisibleTabs;
-        renderVisibleTabs = () => {
-          // Clear all existing tabs from wrapper
-          const existingTabs = tabItemsWrapper.querySelectorAll('.tab-list-item');
-          existingTabs.forEach(tab => tab.remove());
-          
-          // Render exactly 3 tabs starting from currentIndex
-          for (let i = 0; i < visibleTabs; i++) {
-            const tabIndex = currentIndex + i;
-            if (tabIndex < allSummaries.length) {
-              const tabListItem = createTabListItem(allSummaries[tabIndex], tabIndex);
-              tabItemsWrapper.appendChild(tabListItem);
-            }
-          }
-          
-          // Position the wrapper based on current scroll index
-          tabItemsWrapper.style.top = `${currentIndex * tabHeight}px`;
-          
-          console.log(`Rendered tabs ${currentIndex + 1}-${Math.min(currentIndex + visibleTabs, allSummaries.length)} of ${allSummaries.length}`);
-        };
-        
-        // Render initial 3 tabs
-        renderVisibleTabs();
-        
-        // Add tabListContainer to main container
-        container.appendChild(tabListContainer);
-        
-        // Add scroll-based virtual scrolling
-        let isScrolling = false;
-        
-        tabListContainer.addEventListener('scroll', () => {
-          if (isScrolling) return;
-          
-          const scrollTop = tabListContainer.scrollTop;
-          const containerHeight = tabListContainer.clientHeight;
-          const scrollHeight = tabListContainer.scrollHeight;
-          
-          // Calculate which tabs should be visible based on scroll position
-          const newIndex = Math.floor(scrollTop / tabHeight);
-          
-          if (newIndex !== currentIndex && newIndex >= 0 && newIndex + visibleTabs <= allSummaries.length) {
-            currentIndex = newIndex;
-            renderVisibleTabs();
-            console.log(`Scrolled to tabs ${currentIndex + 1}-${Math.min(currentIndex + visibleTabs, allSummaries.length)}`);
-          }
-        });
-        
-        // Add scroll indicators
-        const scrollIndicator = document.createElement('div');
-        scrollIndicator.style.cssText = `
-          position: sticky;
-          top: 0;
-          background: rgba(0,0,0,0.8);
-          color: white;
-          padding: 4px 8px;
-          font-size: 10px;
-          text-align: center;
-          z-index: 10;
-          border-radius: 0 0 4px 4px;
-        `;
-        
-        const updateScrollIndicator = () => {
-          const start = currentIndex + 1;
-          const end = Math.min(currentIndex + visibleTabs, allSummaries.length);
-          scrollIndicator.textContent = `📋 ${start}-${end} of ${allSummaries.length}`;
-        };
-        
-        updateScrollIndicator();
-        tabListContainer.appendChild(scrollIndicator);
-        
-        // Enhance renderVisibleTabs to update indicator
-        const enhancedRenderVisibleTabs = renderVisibleTabs;
-        renderVisibleTabs = () => {
-          enhancedRenderVisibleTabs();
-          updateScrollIndicator();
-        };
-        
-        // Function to show summary in modal (MAGIC NUMBER = 1)
-        const showSummary = (summaryData) => {
-          // Remove any existing summary modal
-          const existingSummary = document.querySelector('.tab-summary-viewer');
-          if (existingSummary) {
-            existingSummary.remove();
-          }
-          
-          const tab = summaryData.tab;
-          const summary = summaryData.summary;
-          
-          // Create modal overlay
-          const summaryViewer = document.createElement('div');
-          summaryViewer.className = 'tab-summary-viewer';
-          summaryViewer.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-          `;
-          
-          const summaryContent = document.createElement('div');
-          summaryContent.style.cssText = `
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            max-width: 90%;
-            max-height: 90%;
-            overflow-y: auto;
-            position: relative;
-          `;
-          
-          summaryContent.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-              <h3 style="margin: 0; color: #333;">${(tab.title || 'Untitled').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}</h3>
-              <button class="closeBtn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer;">✕</button>
-            </div>
-            <div style="margin-bottom: 15px;">
-              <a href="${tab.url}" target="_blank" style="color: #007bff; text-decoration: none; font-size: 12px;">${tab.url}</a>
-            </div>
-            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border-left: 4px solid #007bff;">
-              <h4 style="margin: 0 0 10px 0; color: #495057;">Summary:</h4>
-              <p style="margin: 0; line-height: 1.5; color: #333;">${(summary || 'No summary available').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}</p>
-            </div>
-            <div style="margin-top: 15px; text-align: center;">
-              <button class="openTabBtn" style="background: #007bff; color: white; border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer; margin-right: 10px;">Open Tab</button>
-              <button class="copySummaryBtn" style="background: #28a745; color: white; border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer;">Copy Summary</button>
-            </div>
-          `;
-          
-          // Add event listeners
-          const closeBtn = summaryContent.querySelector('.closeBtn');
-          const openTabBtn = summaryContent.querySelector('.openTabBtn');
-          const copySummaryBtn = summaryContent.querySelector('.copySummaryBtn');
-          
-          closeBtn.addEventListener('click', () => {
-            summaryViewer.remove();
-          });
-          
-          openTabBtn.addEventListener('click', () => {
-            window.open(tab.url, '_blank');
-          });
-          
-          copySummaryBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(summary || '');
-            copySummaryBtn.textContent = '✓ Copied!';
-            setTimeout(() => {
-              copySummaryBtn.textContent = 'Copy Summary';
-            }, 2000);
-          });
-          
-          summaryViewer.appendChild(summaryContent);
-          document.body.appendChild(summaryViewer);
-          
-          // Close on background click
-          summaryViewer.addEventListener('click', (e) => {
-            if (e.target === summaryViewer) {
-              summaryViewer.remove();
+        // Add new summaries to existing ones
+        if (newSummaries.length > 0) {
+          // Get existing summaries from the container
+          const existingSummaries = [];
+          const existingTabElements = container.querySelectorAll('.tab-list-item');
+          existingTabElements.forEach(element => {
+            // Extract tab data from existing elements (simplified)
+            const titleElement = element.querySelector('div[style*="font-weight: bold"]');
+            const urlElement = element.querySelector('div[style*="font-size: 10px"]');
+            if (titleElement && urlElement) {
+              existingSummaries.push({
+                tab: { title: titleElement.textContent, url: urlElement.textContent },
+                summary: 'Cached summary' // We don't need the actual summary for display
+              });
             }
           });
           
-          console.log('Summary modal opened for:', tab.title);
-        };
+          // Combine existing and new summaries
+          const allSummaries = [...existingSummaries, ...newSummaries];
+          
+          // Use simple tab display
+          displaySimpleTabs(allSummaries, container);
+        } else {
+          // No new tabs, just remove loading indicator
+          const loadingDiv = container.querySelector('.loading-new-tabs');
+          if (loadingDiv) {
+            loadingDiv.remove();
+          }
+        }
         
         // Show success message
         try {
           const successMsg = document.createElement('div');
           successMsg.className = 'result success';
           successMsg.style.cssText = 'background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 6px; margin: 8px 0;';
-          successMsg.textContent = `✅ Generated ${allSummaries.length} summaries, scroll to browse tabs (3 at a time)`;
+          successMsg.textContent = `✅ Processed ${newSummaries.length} new tabs`;
           container.appendChild(successMsg);
           console.log('Success message added');
         } catch (successError) {
           console.error('Error adding success message:', successError);
         }
+        
+        // No new tabs to process
+        console.log('No new tabs to process');
         
       } else {
         console.log('No tabs in collection, showing appropriate message...');
@@ -911,6 +708,439 @@ async function testAIModels() {
   }
 }
 
+// Auto-load existing summaries when popup opens
+async function loadExistingSummaries() {
+  try {
+    const container = document.getElementById('tabsContainer');
+    container.innerHTML = '<div class="loading-tabs">🔄 Loading existing summaries...</div>';
+    
+    // Get existing tab collection
+    const response = await chrome.runtime.sendMessage({ action: 'GET_MULTI_TAB_COLLECTION' });
+    
+    if (response.success && response.data?.tabs) {
+      const tabs = response.data.tabs;
+      
+      // Filter tabs with sufficient content
+      const filteredTabs = tabs.filter(tab => {
+        if (!tab.content || tab.content.length < 100) return false;
+        const skipPatterns = ['chrome://', 'chrome-extension://', 'edge://', 'about:'];
+        if (skipPatterns.some(pattern => tab.url.includes(pattern))) return false;
+        return true;
+      });
+      
+      if (filteredTabs.length > 0) {
+        // Load existing summaries from cache
+        await loadCachedSummaries(filteredTabs, container);
+      } else {
+        container.innerHTML = '<div class="result info">ℹ️ No tabs with summaries found. Click "Refresh Summaries" to generate new ones.</div>';
+      }
+    } else {
+      container.innerHTML = '<div class="result info">ℹ️ No existing summaries found. Click "Refresh Summaries" to generate new ones.</div>';
+    }
+    
+  } catch (error) {
+    console.error('Error loading existing summaries:', error);
+    const container = document.getElementById('tabsContainer');
+    container.innerHTML = `<div class="result error">❌ Error loading summaries: ${error.message}</div>`;
+  }
+}
+
+// Load cached summaries for existing tabs
+async function loadCachedSummaries(tabs, container) {
+  try {
+    const allSummaries = [];
+    
+    // Process tabs to get cached summaries
+    for (const tab of tabs) {
+      try {
+        // Try to get cached summary - use URL as primary identifier
+        const summaryResponse = await chrome.runtime.sendMessage({
+          action: 'GET_CACHED_SUMMARY_BY_URL',
+          payload: {
+            url: tab.url || '',
+            title: tab.title || '',
+            length: document.getElementById('summaryLength')?.value || 'short'
+          }
+        });
+        
+        let summary = 'No summary available';
+        if (summaryResponse && summaryResponse.success && summaryResponse.data && summaryResponse.data.summary) {
+          summary = summaryResponse.data.summary;
+        }
+        
+        allSummaries.push({
+          tab: tab,
+          summary: summary
+        });
+        
+      } catch (error) {
+        console.warn('Error processing tab:', tab.title, error);
+        allSummaries.push({
+          tab: tab,
+          summary: 'Error loading summary'
+        });
+      }
+    }
+    
+    // Display the summaries using simple display
+    if (allSummaries.length > 0) {
+      displaySimpleTabs(allSummaries, container);
+    } else {
+      container.innerHTML = '<div class="result info">ℹ️ No summaries found. Click "Refresh Summaries" to generate new ones.</div>';
+    }
+    
+  } catch (error) {
+    console.error('Error loading cached summaries:', error);
+    container.innerHTML = `<div class="result error">❌ Error loading cached summaries: ${error.message}</div>`;
+  }
+}
+
+// Toggle summary inline
+function toggleSummary(summaryData, tabDiv) {
+  const summary = summaryData.summary;
+  
+  // Check if summary is already expanded
+  const existingSummary = tabDiv.querySelector('.inline-summary');
+  
+  if (existingSummary) {
+    // Collapse - remove the summary
+    existingSummary.remove();
+    tabDiv.classList.remove('expanded');
+  } else {
+    // Expand - add the summary
+    const summaryDiv = document.createElement('div');
+    summaryDiv.className = 'inline-summary';
+    summaryDiv.style.cssText = `
+      margin-top: 8px;
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      border-left: 4px solid #007bff;
+      font-size: 12px;
+      line-height: 1.4;
+      color: #333;
+      max-height: 200px;
+      overflow-y: auto;
+    `;
+    
+    summaryDiv.innerHTML = `
+      <div style="margin-bottom: 8px;">
+        <strong>Summary:</strong>
+      </div>
+      <div style="white-space: pre-wrap;">${(summary || 'No summary available').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}</div>
+      <div style="margin-top: 8px; text-align: right;">
+        <button class="copy-summary-btn" style="background: #28a745; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 10px;">Copy</button>
+        <button class="open-tab-btn" style="background: #007bff; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 10px; margin-left: 4px;">Open Tab</button>
+      </div>
+    `;
+    
+    // Add event listeners for buttons
+    const copyBtn = summaryDiv.querySelector('.copy-summary-btn');
+    const openBtn = summaryDiv.querySelector('.open-tab-btn');
+    
+    copyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(summary || '');
+      copyBtn.textContent = '✓ Copied!';
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy';
+      }, 2000);
+    });
+    
+    openBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.open(summaryData.tab.url, '_blank');
+    });
+    
+    tabDiv.appendChild(summaryDiv);
+    tabDiv.classList.add('expanded');
+  }
+}
+
+// Show summary in modal (kept for compatibility)
+async function showSummary(summaryData) {
+  // Remove any existing summary modal
+  const existingSummary = document.querySelector('.tab-summary-viewer');
+  if (existingSummary) {
+    existingSummary.remove();
+  }
+  
+  const tab = summaryData.tab;
+  const summary = summaryData.summary;
+  
+  // Create modal overlay
+  const summaryViewer = document.createElement('div');
+  summaryViewer.className = 'tab-summary-viewer';
+  summaryViewer.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.8);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  `;
+  
+  const summaryContent = document.createElement('div');
+  summaryContent.style.cssText = `
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    max-width: 90%;
+    max-height: 90%;
+    overflow-y: auto;
+    position: relative;
+  `;
+  
+  summaryContent.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <h3 style="margin: 0; color: #333;">${(tab.title || 'Untitled').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}</h3>
+      <button class="closeBtn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 5px 10px; cursor: pointer;">✕</button>
+    </div>
+    <div style="margin-bottom: 15px;">
+      <a href="${tab.url}" target="_blank" style="color: #007bff; text-decoration: none; font-size: 12px;">${tab.url}</a>
+    </div>
+    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border-left: 4px solid #007bff;">
+      <h4 style="margin: 0 0 10px 0; color: #495057;">Summary:</h4>
+      <p style="margin: 0; line-height: 1.5; color: #333;">${(summary || 'No summary available').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}</p>
+    </div>
+    <div style="margin-top: 15px; text-align: center;">
+      <button class="openTabBtn" style="background: #007bff; color: white; border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer; margin-right: 10px;">Open Tab</button>
+      <button class="copySummaryBtn" style="background: #28a745; color: white; border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer;">Copy Summary</button>
+    </div>
+  `;
+  
+  // Add event listeners
+  const closeBtn = summaryContent.querySelector('.closeBtn');
+  const openTabBtn = summaryContent.querySelector('.openTabBtn');
+  const copySummaryBtn = summaryContent.querySelector('.copySummaryBtn');
+  
+  closeBtn.addEventListener('click', () => {
+    summaryViewer.remove();
+  });
+  
+  openTabBtn.addEventListener('click', () => {
+    window.open(tab.url, '_blank');
+  });
+  
+  copySummaryBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(summary || '');
+    copySummaryBtn.textContent = '✓ Copied!';
+    setTimeout(() => {
+      copySummaryBtn.textContent = 'Copy Summary';
+    }, 2000);
+  });
+  
+  summaryViewer.appendChild(summaryContent);
+  document.body.appendChild(summaryViewer);
+  
+  // Close on background click
+  summaryViewer.addEventListener('click', (e) => {
+    if (e.target === summaryViewer) {
+      summaryViewer.remove();
+    }
+  });
+  
+  console.log('Summary modal opened for:', tab.title);
+}
+
+// Simple tab display - no virtual scrolling
+function displaySimpleTabs(allSummaries, container) {
+  // Clear container first
+  container.innerHTML = '';
+  
+  // Add info about loaded summaries
+  const infoDiv = document.createElement('div');
+  infoDiv.style.cssText = 'background: #e3f2fd; color: #1565c0; padding: 8px; margin: 5px; border: 1px solid #90caf9; border-radius: 4px; font-size: 12px;';
+  infoDiv.textContent = `📊 ${allSummaries.length} summaries`;
+  container.appendChild(infoDiv);
+  
+  // Create simple tab list
+  allSummaries.forEach((summaryData, index) => {
+    const tab = summaryData.tab;
+    const summary = summaryData.summary;
+    
+    const tabDiv = document.createElement('div');
+    tabDiv.className = 'tab-list-item';
+    tabDiv.style.cssText = `
+      display: flex;
+      align-items: center;
+      padding: 8px;
+      margin: 4px 0;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #f9f9f9;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    `;
+    
+    // Get favicon
+    let faviconUrl = '';
+    try {
+      const url = new URL(tab.url);
+      faviconUrl = `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=16`;
+    } catch (e) {
+      faviconUrl = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="%23666"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
+    }
+    
+    tabDiv.innerHTML = `
+      <img src="${faviconUrl}" style="width: 16px; height: 16px; margin-right: 8px; border-radius: 2px;">
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-weight: bold; font-size: 12px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${(tab.title || 'Untitled').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}</div>
+        <div style="font-size: 10px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${tab.url}</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <span style="font-size: 10px; color: #999;">📄</span>
+        <button class="refresh-tab-btn" style="background: none; border: none; padding: 4px; cursor: pointer; color: #666;" title="Refresh this tab">🔄</button>
+      </div>
+    `;
+    
+    // Add error handler for favicon
+    const faviconImg = tabDiv.querySelector('img');
+    faviconImg.addEventListener('error', () => {
+      faviconImg.style.display = 'none';
+    });
+    
+    // Click handler to expand/collapse summary inline
+    tabDiv.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('refresh-tab-btn')) {
+        toggleSummary(summaryData, tabDiv);
+      }
+    });
+    
+    // Refresh button handler
+    const refreshBtn = tabDiv.querySelector('.refresh-tab-btn');
+    refreshBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      refreshBtn.textContent = '⏳';
+      refreshBtn.disabled = true;
+      
+      try {
+        // Refresh this specific tab
+        const summaryResponse = await chrome.runtime.sendMessage({
+          action: 'ADAPTIVE_SUMMARIZE',
+          payload: {
+            tabData: {
+              title: tab.title || '',
+              url: tab.url || '',
+              content: tab.content || ''
+            },
+            length: document.getElementById('summaryLength')?.value || 'short',
+            metadata: {
+              description: tab.metadata?.description || '',
+              author: tab.metadata?.author || ''
+            }
+          }
+        });
+        
+        if (summaryResponse && summaryResponse.success && summaryResponse.data && summaryResponse.data.summary) {
+          // Update the summary data
+          summaryData.summary = summaryResponse.data.summary;
+          console.log('Tab refreshed:', tab.title);
+        }
+        
+      } catch (error) {
+        console.error('Error refreshing tab:', error);
+      } finally {
+        refreshBtn.textContent = '🔄';
+        refreshBtn.disabled = false;
+      }
+    });
+    
+    // Hover effect
+    tabDiv.addEventListener('mouseenter', () => {
+      tabDiv.style.backgroundColor = '#e9ecef';
+    });
+    tabDiv.addEventListener('mouseleave', () => {
+      tabDiv.style.backgroundColor = '#f9f9f9';
+    });
+    
+    container.appendChild(tabDiv);
+  });
+  
+  // Add success message
+  const successMsg = document.createElement('div');
+  successMsg.className = 'result success';
+  successMsg.style.cssText = 'background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 6px; margin: 8px 0;';
+  successMsg.textContent = `✅ ${allSummaries.length} summaries loaded`;
+  container.appendChild(successMsg);
+}
+
+// Display tab summaries (reusable function)
+function displayTabSummaries(allSummaries, container) {
+  // Clear container
+  container.innerHTML = '';
+  
+  // Add info about loaded summaries
+  const infoDiv = document.createElement('div');
+  infoDiv.style.cssText = 'background: #e3f2fd; color: #1565c0; padding: 8px; margin: 5px; border: 1px solid #90caf9; border-radius: 4px; font-size: 12px;';
+  infoDiv.textContent = `📊 Loaded ${allSummaries.length} summaries`;
+  container.appendChild(infoDiv);
+  
+  // Create simple tab list
+  allSummaries.forEach((summaryData, index) => {
+    const tab = summaryData.tab;
+    const summary = summaryData.summary;
+    
+    const tabDiv = document.createElement('div');
+    tabDiv.style.cssText = `
+      display: flex;
+      align-items: center;
+      padding: 8px;
+      margin: 4px 0;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #f9f9f9;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    `;
+    
+    // Get favicon
+    let faviconUrl = '';
+    try {
+      const url = new URL(tab.url);
+      faviconUrl = `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=16`;
+    } catch (e) {
+      faviconUrl = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="%23666"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
+    }
+    
+    tabDiv.innerHTML = `
+      <img src="${faviconUrl}" style="width: 16px; height: 16px; margin-right: 8px; border-radius: 2px;">
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-weight: bold; font-size: 12px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${(tab.title || 'Untitled').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}</div>
+        <div style="font-size: 10px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${tab.url}</div>
+      </div>
+      <div style="font-size: 10px; color: #999; margin-left: 8px;">📄 ${index + 1}</div>
+    `;
+    
+    // Click handler to show summary
+    tabDiv.addEventListener('click', () => {
+      showSummary(summaryData);
+    });
+    
+    // Hover effect
+    tabDiv.addEventListener('mouseenter', () => {
+      tabDiv.style.backgroundColor = '#e9ecef';
+    });
+    tabDiv.addEventListener('mouseleave', () => {
+      tabDiv.style.backgroundColor = '#f9f9f9';
+    });
+    
+    container.appendChild(tabDiv);
+  });
+  
+  // Add success message
+  const successMsg = document.createElement('div');
+  successMsg.className = 'result success';
+  successMsg.style.cssText = 'background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 6px; margin: 8px 0;';
+  successMsg.textContent = `✅ Loaded ${allSummaries.length} existing summaries`;
+  container.appendChild(successMsg);
+}
+
 window.addEventListener('load', async () => {
   // Test service worker immediately
   console.log('Popup loaded, testing service worker...');
@@ -924,6 +1154,10 @@ window.addEventListener('load', async () => {
     statusDiv.style.cssText = 'background: #e8f5e8; padding: 8px; margin: 8px; border-radius: 4px; font-size: 12px;';
     statusDiv.textContent = `✅ Service Worker: ${pingResponse.pong ? 'Active' : 'Inactive'}`;
     document.body.insertBefore(statusDiv, document.body.firstChild);
+    
+    // Auto-load existing summaries
+    console.log('Auto-loading existing summaries...');
+    await loadExistingSummaries();
     
   } catch (error) {
     console.error('Service worker PING failed:', error);

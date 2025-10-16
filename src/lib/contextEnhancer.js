@@ -11,8 +11,8 @@ class ContextEnhancer {
       wikipedia: 'https://en.wikipedia.org/api/rest_v1/page/summary/',
       wikidata: 'https://www.wikidata.org/w/api.php'
     };
-    this.cache = new Map();
-    this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
+    // Removed global cache to prevent cross-contamination between videos
+    // Each video should get fresh context based on its specific content
   }
 
   /**
@@ -44,16 +44,6 @@ class ContextEnhancer {
       for (const query of queries) {
         console.log('[ContextEnhancer] Trying query:', query);
         
-        // Check cache first
-        const cacheKey = this.generateCacheKey(query);
-        if (this.cache.has(cacheKey)) {
-          const cached = this.cache.get(cacheKey);
-          if (Date.now() - cached.timestamp < this.cacheTimeout) {
-            console.log('[ContextEnhancer] Using cached context for:', query);
-            return cached.data;
-          }
-        }
-        
         // Fetch BOTH Wikipedia and DuckDuckGo simultaneously
         console.log('[ContextEnhancer] Fetching Wikipedia and DuckDuckGo context simultaneously...');
         const [wikiContext, ddgContext] = await Promise.all([
@@ -71,11 +61,6 @@ class ContextEnhancer {
           console.log('[ContextEnhancer] Found combined results with query:', query);
           // Summarize with AI if API key available
           const summarizedContext = apiKey ? await this.summarizeContextWithAI(combinedContext, apiKey) : combinedContext;
-          // Cache the result
-          this.cache.set(cacheKey, {
-            data: summarizedContext,
-            timestamp: Date.now()
-          });
           return summarizedContext;
         }
       }
@@ -624,13 +609,6 @@ Return only 3 queries, one per line, no explanations:`;
   }
 
   /**
-   * Generate cache key for query
-   */
-  generateCacheKey(query) {
-    return query.toLowerCase().replace(/\s+/g, '_');
-  }
-
-  /**
    * Summarize context using AI to 2 sentences per source
    */
   async summarizeContextWithAI(context, apiKey) {
@@ -715,23 +693,6 @@ Return only 2 sentences, no explanations:`;
     return formatted.trim();
   }
 
-  /**
-   * Clear cache
-   */
-  clearCache() {
-    this.cache.clear();
-    console.log('[ContextEnhancer] Cache cleared');
-  }
-
-  /**
-   * Get cache stats
-   */
-  getCacheStats() {
-    return {
-      size: this.cache.size,
-      entries: Array.from(this.cache.keys())
-    };
-  }
 }
 
 // Export for use in other modules

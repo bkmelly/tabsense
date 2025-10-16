@@ -227,9 +227,9 @@ export class Summarizer {
    */
   buildTemplatePrompt(text, length, template) {
     const wordTargets = {
-      short: '80-120',
-      medium: '250-350',
-      long: '450-550'
+      short: '120-180',
+      medium: '500-700',
+      long: '750-950'
     };
     
     const targetWords = wordTargets[length] || wordTargets.medium;
@@ -373,9 +373,9 @@ Focus on factual accuracy and comprehensive coverage.`;
    */
   buildPrompt(text, length) {
     const wordTargets = {
-      short: '80-120',
-      medium: '250-350',
-      long: '450-550'
+      short: '120-180',
+      medium: '500-700',
+      long: '750-950'
     };
     
     const targetWords = wordTargets[length] || wordTargets.medium;

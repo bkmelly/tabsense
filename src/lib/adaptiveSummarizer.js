@@ -198,60 +198,115 @@ Focus on scientific accuracy and research methodology.`,
       },
       
       youtube: {
-        short: `Create a YouTube video summary with comment analysis (80-120 words):
+        short: `**Title:**
+[Create a compelling headline that captures the essence of the video and audience reaction]
 
-**Video Overview:** [1-2 sentences: What is this video about?]
+**Overview:**
+[1-2 sentences: What is this video about?]
 
 **Key Details:**
 • **Channel:** [Channel name]
 • **Views:** [View count]
-• **Main Topic:** [Core subject]
+• **Topic:** [Core subject]
 
-**Comment Analysis:**
-• **General Sentiment:** [What are people saying in general?]
-• **Main Themes:** [Top 2-3 discussion themes]
+**Sentiment Overview:**
+[What are people saying in general?]
 
-Focus on video content and audience reaction.`,
+**Sentiment Breakdown:**
+• **Positive ([Percentage])** – [Brief description]
+• **Negative ([Percentage])** – [Brief description]  
+• **Neutral/Mixed ([Percentage])** – [Brief description]
 
-        medium: `Create a comprehensive YouTube video summary with layered comment analysis (300 words):
+**Main Themes:**
+• **[Theme 1]:** [Brief description]
+• **[Theme 2]:** [Brief description]
 
-**Video Overview:** [2-3 sentences: What is this video about? Key points covered]
+**Representative Comments:**
+• **"[Quote 1]"** – @username ([likes] likes)
+• **"[Quote 2]"** – @username ([likes] likes)
+
+**External Context:**
+[Use external context if provided - background information, recent developments]
+
+**Insight:**
+[AI synthesis: Connect what the video was about with how people reacted and what that says about the broader topic or sentiment online. This should be 2-3 sentences that provide meaningful analysis beyond just summarizing parts. THIS SECTION IS MANDATORY AND MUST BE COMPLETED.]
+
+CRITICAL: Complete ALL sections including Insight. Do not cut off mid-sentence. The Insight section MUST be the final section and MUST be completed.`,
+
+        medium: `**Title:**
+[Create a compelling headline that captures the essence of the video and audience reaction]
+
+**Overview:**
+[2-3 sentences: What is this video about? Key points covered]
 
 **Key Details:**
 • **Channel:** [Channel name and credibility]
 • **Views:** [View count and engagement level]
-• **Main Topic:** [Core subject and context]
+• **Topic:** [Core subject and context]
 
-**Comment Analysis - Tier 1 (TL;DR):**
+**Sentiment Overview:**
 [What are people saying in general? 1-2 sentences summarizing overall comment sentiment]
 
-**Comment Analysis - Tier 2 (Sentiment Breakdown):**
-• **Positive:** [Percentage] - [Brief description of positive themes]
-• **Negative:** [Percentage] - [Brief description of negative themes]  
-• **Neutral/Mixed:** [Percentage] - [Brief description of neutral themes]
+**Sentiment Breakdown:**
+• **Positive ([Percentage])** – [Brief description of positive themes]
+• **Negative ([Percentage])** – [Brief description of negative themes]  
+• **Neutral/Mixed ([Percentage])** – [Brief description of neutral themes]
 
-**Comment Analysis - Tier 3 (Argument Themes):**
-• **Theme 1:** [Topic] - [Brief description of this argument cluster]
-• **Theme 2:** [Topic] - [Brief description of this argument cluster]
-• **Theme 3:** [Topic] - [Brief description of this argument cluster]
+**Argument Themes:**
+• **[Theme Name]:** [Brief description of this argument cluster]
+• **[Theme Name]:** [Brief description of this argument cluster]
+• **[Theme Name]:** [Brief description of this argument cluster]
 
-**Comment Analysis - Tier 4 (Representative Quotes):**
-• **"[Quote from top comment]"** - [Author] ([likes] likes)
-• **"[Quote from contrasting comment]"** - [Author] ([likes] likes)
+**Representative Comments:**
+• **"[Quote from top comment]"** – @username ([likes] likes)
+• **"[Quote from contrasting comment]"** – @username ([likes] likes)
+• **"[Quote from third perspective]"** – @username ([likes] likes)
 
-**External Context:** [Use external context if provided - background information, recent developments]
+**External Context:**
+[Use external context if provided - background information, recent developments]
 
-IMPORTANT RULES:
+**Insight:**
+[AI synthesis: Connect what the video was about with how people reacted and what that says about the broader topic or sentiment online. This should be 2-3 sentences that provide meaningful analysis beyond just summarizing parts. THIS SECTION IS MANDATORY AND MUST BE COMPLETED.]
+
+CRITICAL REQUIREMENTS - MUST COMPLETE ALL SECTIONS:
+1. **Title** - REQUIRED: Compelling headline capturing video essence and audience reaction
+2. **Overview** - REQUIRED: 2-3 sentences about video content
+3. **Key Details** - REQUIRED: Channel, Views, Topic
+4. **Sentiment Overview** - REQUIRED: Overall comment sentiment
+5. **Sentiment Breakdown** - REQUIRED: Positive/Negative/Neutral percentages
+6. **Argument Themes** - REQUIRED: At least 3 theme clusters
+7. **Representative Comments** - REQUIRED: At least 3 actual comment quotes with usernames
+8. **External Context** - REQUIRED: Use provided external context
+9. **Insight** - REQUIRED: AI synthesis connecting video content with audience reaction - THIS IS THE FINAL SECTION AND MUST BE COMPLETED
+
+MANDATORY RULES:
+- COMPLETE ALL 9 SECTIONS - NO EXCEPTIONS
+- If approaching token limit, COMPLETE current section before stopping
+- NEVER cut off mid-section - finish the section you're working on
 - Use • for ALL bullet points consistently
 - Focus on VIDEO CONTENT first, then comment analysis
 - Include actual comment quotes (not paraphrased)
 - Show comment author names and like counts
 - Analyze sentiment patterns, not individual opinions
 - ALWAYS include External Context section if provided
+- AVOID repetition - each section should add unique value
+- NO generic fillers like "This video discusses..." or "The content covers..."
+- START DIRECTLY WITH **Overview:** - NO introductory text or explanations
+- DO NOT add phrases like "Here's a YouTube video summary" or "This video analysis includes"
+- BEGIN IMMEDIATELY with the first section header
+- NEVER cut off mid-sentence - always complete the current section
+- If approaching token limit, prioritize completing current section over starting new ones
+- ALWAYS end with a complete sentence in the Insight section
+- INSIGHT SECTION IS MANDATORY - never skip or cut off this section
+- The Insight section must provide meaningful analysis connecting video content with audience reaction
+- ALWAYS end the summary with the Insight section - it is the final required section
+- If you must choose between completing Insight or starting a new section, ALWAYS complete Insight
+- Be specific and concrete in all descriptions
+- Prioritize substance over word count
 
 Focus on video content quality and audience engagement patterns.`,
 
-        sections: ['overview', 'key_details', 'comment_analysis_tldr', 'comment_analysis_sentiment', 'comment_analysis_themes', 'comment_analysis_quotes', 'external_context']
+        sections: ['title', 'overview', 'key_details', 'sentiment_overview', 'sentiment_breakdown', 'argument_themes', 'representative_comments', 'external_context', 'insight']
       },
       
       generic: {
@@ -296,23 +351,36 @@ Focus on clarity and comprehensive coverage.`,
     try {
       console.log('[AdaptiveSummarizer] Starting adaptive summarization...');
       
-      // Step 1: Generate content hash for caching
-      const contentHash = await this.cachingManager.generateContentHash(
+      // Step 1: Classify page type first (needed for consistent cache keys)
+      const classification = this.classifier.classify(pageData);
+      console.log('[AdaptiveSummarizer] Page classified as:', classification.type);
+      
+      // Step 2: Check cache FIRST (without external context to avoid regeneration)
+      const basicCacheKey = await this.cachingManager.generateContentHash(
         pageData.content,
         {
           title: pageData.title,
           url: pageData.url,
-          pageType: 'pending', // Will be updated after classification
+          pageType: classification.type,
           summaryLength: length
         }
       );
+      const cachedResult = await this.cachingManager.getCachedSummary(basicCacheKey);
       
-      // Step 2: Classify page type
-      const classification = this.classifier.classify(pageData);
-      console.log('[AdaptiveSummarizer] Page classified as:', classification.type);
+      if (cachedResult) {
+        console.log('[AdaptiveSummarizer] Found cached summary, returning without regeneration');
+        return {
+          success: true,
+          data: {
+            summary: cachedResult.summary,
+            metadata: cachedResult.metadata,
+            cached: true
+          }
+        };
+      }
       
-      // Step 3: Get external context
-      console.log('[AdaptiveSummarizer] Getting external context...');
+      // Step 3: Only get external context if no cache found
+      console.log('[AdaptiveSummarizer] No cache found, getting external context...');
       const externalContext = await this.contextEnhancer.getExternalContext({
         title: pageData.title,
         url: pageData.url,
@@ -321,23 +389,7 @@ Focus on clarity and comprehensive coverage.`,
       }, this.apiKey);
       console.log('[AdaptiveSummarizer] External context received:', externalContext);
       
-      // Step 4: Check cache (include context in cache key)
-      const contextHash = externalContext.fallback ? '' : JSON.stringify(externalContext);
-      const fullCacheKey = await this.cachingManager.generateContentHash(pageData.content + contextHash);
-      const cachedResult = await this.cachingManager.getCachedSummary(fullCacheKey);
-      if (cachedResult) {
-        const latency = Date.now() - startTime;
-        this.performanceMonitor.recordCacheHit(latency);
-        console.log('[AdaptiveSummarizer] Using cached summary with context');
-        return {
-          ...cachedResult,
-          cached: true,
-          cacheAge: cachedResult.cacheAge,
-          externalContext: externalContext
-        };
-      }
-      
-      // Step 5: Get template for this page type
+      // Step 4: Get template for this page type
       const template = this.templates[classification.type] || this.templates.generic;
       const config = this.classifier.getTemplateConfig(classification.type) || this.classifier.getTemplateConfig('generic');
       
@@ -409,9 +461,9 @@ Focus on clarity and comprehensive coverage.`,
         cached: false
       };
       
-      // Step 8: Store in cache for future use
+      // Step 8: Store in cache for future use (use same key as retrieval)
       await this.cachingManager.storeCachedSummary(
-        contentHash,
+        basicCacheKey,
         result.summary,
         {
           ...metadata,
@@ -489,7 +541,7 @@ ${text}`;
             temperature: 0.3,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: length === 'short' ? 200 : length === 'medium' ? 500 : 1000,
+            maxOutputTokens: length === 'short' ? 1000 : length === 'medium' ? 2500 : 4000,
           }
         })
       });
@@ -722,7 +774,7 @@ Create ONE highly readable, well-structured summary now:`;
             temperature: 0.2,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: length === 'short' ? 200 : length === 'medium' ? 500 : 800,
+            maxOutputTokens: length === 'short' ? 1000 : length === 'medium' ? 2500 : 4000,
           }
         })
       });
@@ -921,14 +973,17 @@ Create ONE highly readable, well-structured summary now:`;
    */
   buildAdaptivePrompt(content, template, config, length) {
     const wordTargets = {
-      short: '80-120',
-      medium: '250-350',
-      long: '450-550'
+      short: '120-180',
+      medium: '500-700',
+      long: '750-950'
     };
     
     const targetWords = wordTargets[length] || wordTargets.medium;
     
-    return `${template.prompt}
+    // Get the appropriate prompt based on length (handle both prompt and short/medium structure)
+    const prompt = template[length] || template.short || template.prompt;
+    
+    return `${prompt}
 
 CONTENT REQUIREMENTS:
 - Length: ${targetWords} words
