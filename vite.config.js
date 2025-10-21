@@ -1,9 +1,13 @@
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 import tailwindcss from 'tailwindcss';
 import autoprefixer from 'autoprefixer';
 import { resolve } from 'path';
 
 export default defineConfig({
+  // Add React plugin
+  plugins: [react()],
+  
   // Chrome extension specific configuration
   build: {
     outDir: 'dist',
@@ -15,9 +19,11 @@ export default defineConfig({
         
         // Content scripts
         content: resolve(__dirname, 'src/content/content-script.js'),
+        'lib/commentNavigator': resolve(__dirname, 'src/lib/commentNavigator.js'),
         
-        // UI components
+        // UI components - React
         sidebar: resolve(__dirname, 'src/ui/sidebar/sidebar.html'),
+        'sidebar.jsx': resolve(__dirname, 'src/ui/sidebar/sidebar.jsx'),
         popup: resolve(__dirname, 'src/ui/popup/popup.html'),
         'popup.js': resolve(__dirname, 'src/ui/popup/popup.js')
       },
@@ -26,7 +32,9 @@ export default defineConfig({
           // Keep background script as .js
           if (chunkInfo.name === 'background') return 'background.js';
           if (chunkInfo.name === 'content') return 'content.js';
+          if (chunkInfo.name === 'lib/commentNavigator') return 'lib/commentNavigator.js';
           if (chunkInfo.name === 'popup.js') return 'popup.js';
+          if (chunkInfo.name === 'sidebar.jsx') return 'sidebar.js';
           return '[name].js';
         },
         assetFileNames: (assetInfo) => {

@@ -1,0 +1,128 @@
+/* TabSense Sidebar Specific Styles */
+@import '../styles/main.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Sidebar Layout */
+.sidebar-layout {
+  @apply bg-background min-h-screen w-full;
+}
+
+.sidebar-content {
+  @apply max-w-md mx-auto p-4 space-y-6;
+}
+
+/* Sidebar Header */
+.sidebar-header {
+  @apply bg-card text-card-foreground rounded-lg shadow-sm border border-border p-4;
+}
+
+.sidebar-title {
+  @apply text-2xl font-bold text-primary;
+}
+
+.sidebar-status {
+  @apply px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full;
+}
+
+/* Sidebar Sections */
+.sidebar-section {
+  @apply bg-card text-card-foreground rounded-lg shadow-sm border border-border p-4;
+}
+
+.sidebar-section-title {
+  @apply text-lg font-semibold text-foreground mb-3;
+}
+
+/* Tab Summaries Section */
+.tabs-container {
+  @apply space-y-3;
+}
+
+.tab-summary-item {
+  @apply border border-border rounded-md p-3 bg-muted/30 hover:bg-muted/50 transition-colors duration-200 cursor-pointer;
+}
+
+.tab-summary-item:hover {
+  @apply shadow-md;
+}
+
+.tab-summary-title {
+  @apply font-medium text-foreground text-sm;
+}
+
+.tab-summary-url {
+  @apply text-xs text-muted-foreground mt-1;
+}
+
+.tab-summary-content-length {
+  @apply text-xs text-muted-foreground mt-2;
+}
+
+.tab-summary-timestamp {
+  @apply text-xs text-muted-foreground mt-1;
+}
+
+/* Q&A Section */
+.qa-container {
+  @apply space-y-3;
+}
+
+.qa-input {
+  @apply w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent bg-background text-foreground;
+}
+
+.qa-button {
+  @apply bg-primary text-primary-foreground py-2 px-4 rounded-md hover:bg-primary/90 transition-colors duration-200 font-medium w-full;
+}
+
+.qa-answer-area {
+  @apply mt-3 p-3 bg-muted/50 rounded-md text-sm text-foreground;
+}
+
+.qa-answer-hidden {
+  @apply hidden;
+}
+
+/* Consolidated Summary */
+.consolidated-summary {
+  @apply text-muted-foreground text-sm leading-relaxed;
+}
+
+.consolidated-summary-empty {
+  @apply text-muted-foreground;
+}
+
+.consolidated-summary-content {
+  @apply text-foreground;
+}
+
+/* Loading States */
+.loading-tabs {
+  @apply text-center py-8 text-muted-foreground italic;
+}
+
+.loading-summary {
+  @apply animate-pulse bg-muted rounded h-4 mb-2;
+}
+
+/* Error States */
+.error-message {
+  @apply text-destructive text-sm;
+}
+
+.error-container {
+  @apply bg-destructive/10 border border-destructive/20 rounded-md p-3;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 400px) {
+  .sidebar-content {
+    @apply p-2 space-y-4;
+  }
+  
+  .sidebar-section {
+    @apply p-3;
+  }
+}
