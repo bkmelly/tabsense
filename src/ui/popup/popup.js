@@ -160,7 +160,7 @@ async function refreshTabSummaries() {
       }
     }
     
-    // Always try to get existing collection (whether extraction succeeded or failed)
+    // Get multi-tab collection AFTER extraction to ensure we have the latest data
     const response = await chrome.runtime.sendMessage({ action: 'GET_MULTI_TAB_COLLECTION' });
     
     // Debug logging
@@ -264,26 +264,52 @@ async function refreshTabSummaries() {
           });
         }
         
-        // Filter out tabs that already have summaries (either in DOM or cached)
+        // Separate cached and new tabs
+        const cachedTabs = filteredTabs.filter(tab => tabsWithCachedSummaries.has(tab.url));
         const newTabs = filteredTabs.filter(tab => 
           !existingTabUrls.has(tab.url) && !tabsWithCachedSummaries.has(tab.url)
         );
         
         console.log(`Found ${filteredTabs.length} total tabs, ${newTabs.length} new tabs to process`);
         
-        // Process only NEW tabs to generate summaries
-        console.log(`Processing ${newTabs.length} new tabs`);
+        // Get the current active tab to process only that one
+        let activeTab = null;
+        try {
+          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tabs.length > 0) {
+            activeTab = tabs[0];
+            console.log('Current active tab:', { title: activeTab.title, url: activeTab.url });
+          }
+        } catch (e) {
+          console.warn('Could not get active tab:', e.message);
+        }
+        
+        // Only process the current active tab if it's new
+        const tabsToProcess = [];
+        if (activeTab && newTabs.some(tab => tab.url === activeTab.url)) {
+          const activeTabData = newTabs.find(tab => tab.url === activeTab.url);
+          if (activeTabData) {
+            tabsToProcess.push(activeTabData);
+            console.log('Processing current active tab:', activeTab.title);
+          }
+        } else if (newTabs.length > 0) {
+          console.log('No active tab found in new tabs, processing first new tab');
+          tabsToProcess.push(newTabs[0]);
+        }
+        
+        console.log(`Processing ${tabsToProcess.length} tabs (active tab only)`);
         
         // Update the info div with new tabs info
         infoDiv.innerHTML = `
-          📊 Found ${newTabs.length} new tabs to process (${filteredTabs.length} total)<br>
-          <small>🔄 Processing new tabs only...</small>
+          📊 Found ${tabsToProcess.length} tabs to process (${filteredTabs.length} total)<br>
+          <small>🔄 Processing active tab only...</small><br>
+          <small>📋 ${cachedTabs.length} cached summaries available</small>
         `;
         
-        // Process only NEW tabs to generate summaries
+        // Process only the current active tab
         const newSummaries = [];
         
-        for (const tab of newTabs) {
+        for (const tab of tabsToProcess) {
           try {
             // Ensure tab has required properties
             if (!tab.title || !tab.url) {
@@ -291,22 +317,29 @@ async function refreshTabSummaries() {
               continue;
             }
             
-            // Tabs are already filtered, just ensure basic properties exist
+            // Use fresh active tab data with collection content
+            let currentTabData = {
+              title: activeTab.title || '',
+              url: activeTab.url || '',
+              content: tab.content || ''
+            };
+            
+            console.log('Using fresh active tab data with collection content:', { 
+              title: currentTabData.title, 
+              url: currentTabData.url,
+              contentLength: currentTabData.content.length
+            });
             
             // Try summarization with proper error handling
             let summary = 'Failed to summarize';
             
             try {
-              console.log('Attempting summarization for:', tab.title);
+              console.log('Attempting summarization for:', currentTabData.title);
               
               const summaryResponse = await chrome.runtime.sendMessage({
                 action: 'ADAPTIVE_SUMMARIZE',
                 payload: {
-                  tabData: {
-                    title: tab.title || '',
-                    url: tab.url || '',
-                    content: tab.content || ''
-                  },
+                  tabData: currentTabData,
                   length: document.getElementById('summaryLength')?.value || 'short',
                   metadata: {
                     description: tab.metadata?.description || '',

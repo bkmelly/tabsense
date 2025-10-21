@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TabSense Chrome AI Multimodal Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .warning { background-color: #fff3cd; border-color: #ffeaa7; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        #results { margin-top: 20px; }
+        .capability { margin: 10px 0; padding: 10px; border-left: 4px solid #007bff; }
+        .capability.available { border-left-color: #28a745; }
+        .capability.unavailable { border-left-color: #dc3545; }
+    </style>
+</head>
+<body>
+    <h1>🚀 TabSense Chrome AI Multimodal Test</h1>
+    <p>Testing Chrome's built-in AI APIs for hackathon compliance</p>
+    
+    <div class="test-section">
+        <h2>🔍 Chrome AI API Detection</h2>
+        <button onclick="checkChromeAI()">Check All Chrome AI APIs</button>
+        <div id="chrome-ai-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>🌐 Language Detection Test</h2>
+        <button onclick="testLanguageDetection()">Test Language Detection</button>
+        <div id="language-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>🔄 Translation Test</h2>
+        <button onclick="testTranslation()">Test Translation</button>
+        <div id="translation-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>✍️ Proofreading Test</h2>
+        <button onclick="testProofreading()">Test Proofreading</button>
+        <div id="proofreading-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>📝 Summarization Test</h2>
+        <button onclick="testSummarization()">Test Summarization</button>
+        <div id="summarization-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>💬 Q&A Test</h2>
+        <button onclick="testQA()">Test Q&A</button>
+        <div id="qa-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>🎯 Multimodal Workflow Test</h2>
+        <p>Complete workflow: Extract → Detect Language → Translate → Summarize → Q&A</p>
+        <button onclick="testMultimodalWorkflow()">Test Complete Workflow</button>
+        <div id="workflow-results"></div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function updateResults(elementId, content, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = content;
+            element.className = `test-section ${type}`;
+        }
+
+        async function checkChromeAI() {
+            const results = [];
+            
+            // Check Language Detector
+            if ('LanguageDetector' in self) {
+                try {
+                    const availability = await LanguageDetector.availability();
+                    results.push(`✅ Language Detector: ${availability}`);
+                } catch (error) {
+                    results.push(`❌ Language Detector: Error - ${error.message}`);
+                }
+            } else {
+                results.push('❌ Language Detector: Not available');
+            }
+            
+            // Check Translator
+            if (typeof Translator !== 'undefined') {
+                try {
+                    const availability = await Translator.availability();
+                    results.push(`✅ Translator: ${availability}`);
+                } catch (error) {
+                    results.push(`❌ Translator: Error - ${error.message}`);
+                }
+            } else {
+                results.push('❌ Translator: Not available');
+            }
+            
+            // Check Proofreader
+            if (typeof Proofreader !== 'undefined') {
+                try {
+                    const availability = await Proofreader.availability();
+                    results.push(`✅ Proofreader: ${availability}`);
+                } catch (error) {
+                    results.push(`❌ Proofreader: Error - ${error.message}`);
+                }
+            } else {
+                results.push('❌ Proofreader: Not available');
+            }
+            
+            // Check Summarizer
+            if (typeof Summarizer !== 'undefined') {
+                try {
+                    const availability = await Summarizer.availability();
+                    results.push(`✅ Summarizer: ${availability}`);
+                } catch (error) {
+                    results.push(`❌ Summarizer: Error - ${error.message}`);
+                }
+            } else {
+                results.push('❌ Summarizer: Not available');
+            }
+            
+            // Check Prompt
+            if (typeof Prompt !== 'undefined') {
+                try {
+                    const availability = await Prompt.availability();
+                    results.push(`✅ Prompt: ${availability}`);
+                } catch (error) {
+                    results.push(`❌ Prompt: Error - ${error.message}`);
+                }
+            } else {
+                results.push('❌ Prompt: Not available');
+            }
+            
+            updateResults('chrome-ai-results', results.join('<br>'), 'info');
+        }
+
+        async function testLanguageDetection() {
+            try {
+                const testTexts = [
+                    { text: "Hello, how are you today?", expected: "en" },
+                    { text: "Hola, ¿cómo estás hoy?", expected: "es" },
+                    { text: "Bonjour, comment allez-vous?", expected: "fr" },
+                    { text: "Hallo, wie geht es dir?", expected: "de" },
+                    { text: "Ciao, come stai oggi?", expected: "it" }
+                ];
+                
+                const results = [];
+                
+                for (const test of testTexts) {
+                    try {
+                        if ('LanguageDetector' in self) {
+                            const availability = await LanguageDetector.availability();
+                            if (availability === 'available') {
+                                const detector = await LanguageDetector.create();
+                                const detected = await detector.detect(test.text);
+                                results.push(`✅ "${test.text}" → ${detected} (expected: ${test.expected})`);
+                            } else {
+                                results.push(`⚠️ "${test.text}" → Language Detector ${availability}`);
+                            }
+                        } else {
+                            results.push(`❌ "${test.text}" → Language Detector not available`);
+                        }
+                    } catch (error) {
+                        results.push(`❌ "${test.text}" → Error: ${error.message}`);
+                    }
+                }
+                
+                updateResults('language-results', results.join('<br>'), 'info');
+                
+            } catch (error) {
+                updateResults('language-results', `❌ Language Detection Test Failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testTranslation() {
+            try {
+                const testText = "Hello, how are you today?";
+                const targetLanguages = ['es', 'fr', 'de', 'it'];
+                
+                const results = [];
+                
+                if (typeof Translator !== 'undefined') {
+                    const availability = await Translator.availability();
+                    if (availability === 'available') {
+                        const translator = await Translator.create();
+                        
+                        for (const lang of targetLanguages) {
+                            try {
+                                const translated = await translator.translate(testText, lang);
+                                results.push(`✅ "${testText}" → ${lang}: "${translated}"`);
+                            } catch (error) {
+                                results.push(`❌ Translation to ${lang} failed: ${error.message}`);
+                            }
+                        }
+                    } else {
+                        results.push(`⚠️ Translator ${availability}`);
+                    }
+                } else {
+                    results.push('❌ Translator not available');
+                }
+                
+                updateResults('translation-results', results.join('<br>'), 'info');
+                
+            } catch (error) {
+                updateResults('translation-results', `❌ Translation Test Failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testProofreading() {
+            try {
+                const testText = "This is a test sentance with some erors. It shoud be corected.";
+                
+                if (typeof Proofreader !== 'undefined') {
+                    const availability = await Proofreader.availability();
+                    if (availability === 'available') {
+                        const proofreader = await Proofreader.create();
+                        const corrected = await proofreader.proofread(testText);
+                        
+                        updateResults('proofreading-results', 
+                            `✅ Original: "${testText}"<br>✅ Corrected: "${corrected}"`, 'success');
+                    } else {
+                        updateResults('proofreading-results', `⚠️ Proofreader ${availability}`, 'warning');
+                    }
+                } else {
+                    updateResults('proofreading-results', '❌ Proofreader not available', 'error');
+                }
+                
+            } catch (error) {
+                updateResults('proofreading-results', `❌ Proofreading Test Failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testSummarization() {
+            try {
+                const testText = "Artificial intelligence (AI) is intelligence demonstrated by machines, in contrast to the natural intelligence displayed by humans and animals. Leading AI textbooks define the field as the study of 'intelligent agents': any device that perceives its environment and takes actions that maximize its chance of successfully achieving its goals. The term 'artificial intelligence' is often used to describe machines that mimic cognitive functions that humans associate with the human mind, such as learning and problem solving.";
+                
+                if (typeof Summarizer !== 'undefined') {
+                    const availability = await Summarizer.availability();
+                    if (availability === 'available') {
+                        const summarizer = await Summarizer.create();
+                        const summary = await summarizer.summarize(testText);
+                        
+                        updateResults('summarization-results', 
+                            `✅ Original (${testText.length} chars): "${testText}"<br><br>✅ Summary (${summary.length} chars): "${summary}"`, 'success');
+                    } else {
+                        updateResults('summarization-results', `⚠️ Summarizer ${availability}`, 'warning');
+                    }
+                } else {
+                    updateResults('summarization-results', '❌ Summarizer not available', 'error');
+                }
+                
+            } catch (error) {
+                updateResults('summarization-results', `❌ Summarization Test Failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testQA() {
+            try {
+                const testSummaries = [
+                    { title: "AI Article", summary: "Artificial intelligence is transforming industries worldwide." },
+                    { title: "Tech News", summary: "New AI models are being developed for better performance." }
+                ];
+                
+                const question = "What is artificial intelligence?";
+                
+                if (typeof Prompt !== 'undefined') {
+                    const availability = await Prompt.availability();
+                    if (availability === 'available') {
+                        const promptSession = await Prompt.create();
+                        
+                        const context = testSummaries.map((s, i) => 
+                            `[${i + 1}] ${s.title}: ${s.summary}`
+                        ).join('\n\n');
+                        
+                        const prompt = `Based on these summaries:\n\n${context}\n\nQuestion: ${question}`;
+                        const answer = await promptSession.prompt(prompt);
+                        
+                        updateResults('qa-results', 
+                            `✅ Question: "${question}"<br><br>✅ Answer: "${answer}"`, 'success');
+                    } else {
+                        updateResults('qa-results', `⚠️ Prompt ${availability}`, 'warning');
+                    }
+                } else {
+                    updateResults('qa-results', '❌ Prompt not available', 'error');
+                }
+                
+            } catch (error) {
+                updateResults('qa-results', `❌ Q&A Test Failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testMultimodalWorkflow() {
+            try {
+                const testText = "Bonjour, comment allez-vous? L'intelligence artificielle transforme notre monde.";
+                const results = [];
+                
+                results.push(`🔄 Starting multimodal workflow with: "${testText}"`);
+                
+                // Step 1: Language Detection
+                if ('LanguageDetector' in self) {
+                    const availability = await LanguageDetector.availability();
+                    if (availability === 'available') {
+                        const detector = await LanguageDetector.create();
+                        const detectedLang = await detector.detect(testText);
+                        results.push(`✅ Step 1 - Language Detection: ${detectedLang}`);
+                        
+                        // Step 2: Translation (if not English)
+                        if (detectedLang !== 'en' && typeof Translator !== 'undefined') {
+                            const translatorAvailability = await Translator.availability();
+                            if (translatorAvailability === 'available') {
+                                const translator = await Translator.create();
+                                const translated = await translator.translate(testText, 'en');
+                                results.push(`✅ Step 2 - Translation: "${translated}"`);
+                                
+                                // Step 3: Summarization
+                                if (typeof Summarizer !== 'undefined') {
+                                    const summarizerAvailability = await Summarizer.availability();
+                                    if (summarizerAvailability === 'available') {
+                                        const summarizer = await Summarizer.create();
+                                        const summary = await summarizer.summarize(translated);
+                                        results.push(`✅ Step 3 - Summarization: "${summary}"`);
+                                        
+                                        // Step 4: Q&A
+                                        if (typeof Prompt !== 'undefined') {
+                                            const promptAvailability = await Prompt.availability();
+                                            if (promptAvailability === 'available') {
+                                                const promptSession = await Prompt.create();
+                                                const qaPrompt = `Based on this summary: "${summary}"\n\nQuestion: What is this about?`;
+                                                const answer = await promptSession.prompt(qaPrompt);
+                                                results.push(`✅ Step 4 - Q&A: "${answer}"`);
+                                            } else {
+                                                results.push(`⚠️ Step 4 - Q&A: Prompt ${promptAvailability}`);
+                                            }
+                                        } else {
+                                            results.push('❌ Step 4 - Q&A: Prompt not available');
+                                        }
+                                    } else {
+                                        results.push(`⚠️ Step 3 - Summarization: Summarizer ${summarizerAvailability}`);
+                                    }
+                                } else {
+                                    results.push('❌ Step 3 - Summarization: Summarizer not available');
+                                }
+                            } else {
+                                results.push(`⚠️ Step 2 - Translation: Translator ${translatorAvailability}`);
+                            }
+                        } else {
+                            results.push(`ℹ️ Step 2 - Translation: Skipped (already English or Translator unavailable)`);
+                        }
+                    } else {
+                        results.push(`⚠️ Step 1 - Language Detection: ${availability}`);
+                    }
+                } else {
+                    results.push('❌ Step 1 - Language Detection: Language Detector not available');
+                }
+                
+                updateResults('workflow-results', results.join('<br>'), 'info');
+                
+            } catch (error) {
+                updateResults('workflow-results', `❌ Multimodal Workflow Test Failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize on page load
+        window.onload = function() {
+            log('Chrome AI Multimodal Test page loaded');
+        };
+    </script>
+</body>
+</html>

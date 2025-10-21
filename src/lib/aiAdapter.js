@@ -143,6 +143,32 @@ export class AIAdapter {
         }
       }
       
+      // Check Language Detector (small model, likely available)
+      if ('LanguageDetector' in self) {
+        try {
+          const availability = await LanguageDetector.availability();
+          log('info', `Chrome Language Detector availability: ${availability}`);
+          if (availability === 'available') {
+            hasAnyAI = true;
+          }
+        } catch (error) {
+          log('warn', 'Language Detector check failed', error);
+        }
+      }
+      
+      // Check Proofreader (if available)
+      if (typeof Proofreader !== 'undefined') {
+        try {
+          const availability = await Proofreader.availability();
+          log('info', `Chrome Proofreader availability: ${availability}`);
+          if (availability === 'available') {
+            hasAnyAI = true;
+          }
+        } catch (error) {
+          log('warn', 'Proofreader check failed', error);
+        }
+      }
+      
       if (hasAnyAI) {
         log('info', 'At least one Chrome AI API is available');
         return true;
@@ -1158,31 +1184,221 @@ export class AIAdapter {
     return answer + `Here's some relevant information: ${context}`;
   }
 
+
   /**
-   * Proofread text (placeholder for future implementation)
+   * Detect language of text using Chrome's Language Detector API
+   * @param {string} text - Text to detect language for
+   * @returns {Promise<string>} - Detected language code
+   */
+  async detectLanguage(text) {
+    log('info', `Detecting language for text (${text.length} chars)`);
+    
+    try {
+      // Check if Language Detector is available
+      if (!('LanguageDetector' in self)) {
+        throw new Error('Chrome Language Detector API not available');
+      }
+      
+      const availability = await LanguageDetector.availability();
+      log('info', `Language Detector availability: ${availability}`);
+      
+      if (availability === 'unavailable') {
+        throw new Error('Language Detector not available on this device');
+      }
+      
+      if (availability === 'downloadable') {
+        log('info', 'Language Detector model needs to be downloaded');
+        throw new Error('Language Detector model needs to be downloaded. User interaction required.');
+      }
+      
+      if (availability === 'downloading') {
+        throw new Error('Language Detector model is currently downloading');
+      }
+      
+      if (availability === 'available') {
+        // Create language detector with download progress monitoring
+        const detector = await LanguageDetector.create({
+          monitor(m) {
+            m.addEventListener('downloadprogress', (e) => {
+              log('info', `Language Detector downloaded ${e.loaded * 100}%`);
+            });
+          },
+        });
+        
+        // Detect language
+        const result = await detector.detect(text);
+        
+        log('info', 'Language detection completed', {
+          textLength: text.length,
+          detectedLanguage: result
+        });
+        
+        return result;
+      }
+      
+      throw new Error(`Unexpected Language Detector availability: ${availability}`);
+      
+    } catch (error) {
+      log('warn', 'Chrome Language Detector failed, using fallback', error);
+      
+      // Fallback: Simple language detection based on common patterns
+      return this.detectLanguageFallback(text);
+    }
+  }
+
+  /**
+   * Translate text using Chrome's Translator API
+   * @param {string} text - Text to translate
+   * @param {string} targetLanguage - Target language code (e.g., 'en', 'es', 'fr')
+   * @returns {Promise<string>} - Translated text
+   */
+  async translateText(text, targetLanguage) {
+    log('info', `Translating text to ${targetLanguage} (${text.length} chars)`);
+    
+    try {
+      // Check if Translator is available
+      if (typeof Translator === 'undefined') {
+        throw new Error('Chrome Translator API not available');
+      }
+      
+      const availability = await Translator.availability();
+      log('info', `Translator availability: ${availability}`);
+      
+      if (availability === 'unavailable') {
+        throw new Error('Translator not available on this device');
+      }
+      
+      if (availability === 'downloadable') {
+        log('info', 'Translator model needs to be downloaded');
+        throw new Error('Translator model needs to be downloaded. User interaction required.');
+      }
+      
+      if (availability === 'downloading') {
+        throw new Error('Translator model is currently downloading');
+      }
+      
+      if (availability === 'available') {
+        // Create translator
+        const translator = await Translator.create();
+        
+        // Translate text
+        const result = await translator.translate(text, targetLanguage);
+        
+        log('info', 'Translation completed', {
+          originalLength: text.length,
+          translatedLength: result.length,
+          targetLanguage: targetLanguage
+        });
+        
+        return result;
+      }
+      
+      throw new Error(`Unexpected Translator availability: ${availability}`);
+      
+    } catch (error) {
+      log('warn', 'Chrome Translator failed, using fallback', error);
+      
+      // Fallback: Return original text with note
+      return `${text} [Translation to ${targetLanguage} failed - Chrome Translator unavailable]`;
+    }
+  }
+
+  /**
+   * Proofread text using Chrome's Proofreader API
    * @param {string} text - Text to proofread
    * @returns {Promise<string>} - Proofread text
    */
   async proofreadText(text) {
-    log('info', 'Proofreading text (placeholder implementation)');
+    log('info', `Proofreading text (${text.length} chars)`);
     
-    // Placeholder implementation
-    // In the future, this would use Chrome's proofreader API
-    return text; // For now, just return the original text
+    try {
+      // Check if Proofreader is available
+      if (typeof Proofreader === 'undefined') {
+        throw new Error('Chrome Proofreader API not available');
+      }
+      
+      const availability = await Proofreader.availability();
+      log('info', `Proofreader availability: ${availability}`);
+      
+      if (availability === 'unavailable') {
+        throw new Error('Proofreader not available on this device');
+      }
+      
+      if (availability === 'downloadable') {
+        log('info', 'Proofreader model needs to be downloaded');
+        throw new Error('Proofreader model needs to be downloaded. User interaction required.');
+      }
+      
+      if (availability === 'downloading') {
+        throw new Error('Proofreader model is currently downloading');
+      }
+      
+      if (availability === 'available') {
+        // Create proofreader
+        const proofreader = await Proofreader.create();
+        
+        // Proofread text
+        const result = await proofreader.proofread(text);
+        
+        log('info', 'Proofreading completed', {
+          originalLength: text.length,
+          proofreadLength: result.length
+        });
+        
+        return result;
+      }
+      
+      throw new Error(`Unexpected Proofreader availability: ${availability}`);
+      
+    } catch (error) {
+      log('warn', 'Chrome Proofreader failed, using fallback', error);
+      
+      // Fallback: Return original text
+      return text;
+    }
   }
 
   /**
-   * Translate text (placeholder for future implementation)
-   * @param {string} text - Text to translate
-   * @param {string} targetLanguage - Target language
-   * @returns {Promise<string>} - Translated text
+   * Fallback language detection using simple patterns
+   * @param {string} text - Text to analyze
+   * @returns {string} - Detected language code
    */
-  async translateText(text, targetLanguage) {
-    log('info', `Translating text to ${targetLanguage} (placeholder implementation)`);
+  detectLanguageFallback(text) {
+    log('info', 'Using fallback language detection');
     
-    // Placeholder implementation
-    // In the future, this would use Chrome's translator API
-    return text; // For now, just return the original text
+    // Simple pattern-based language detection
+    const patterns = {
+      'en': /[a-zA-Z]/g, // English has Latin characters
+      'es': /[ñáéíóúü]/gi, // Spanish has accented characters
+      'fr': /[àâäéèêëïîôöùûüÿç]/gi, // French has specific accents
+      'de': /[äöüß]/gi, // German has umlauts and eszett
+      'it': /[àèéìíîòóù]/gi, // Italian has specific accents
+      'pt': /[ãõáéíóúâêô]/gi, // Portuguese has specific accents
+      'ru': /[а-яё]/gi, // Russian has Cyrillic characters
+      'zh': /[\u4e00-\u9fff]/g, // Chinese has CJK characters
+      'ja': /[\u3040-\u309f\u30a0-\u30ff]/g, // Japanese has hiragana/katakana
+      'ko': /[\uac00-\ud7af]/g, // Korean has Hangul characters
+      'ar': /[\u0600-\u06ff]/g, // Arabic has Arabic characters
+    };
+    
+    const scores = {};
+    
+    // Count character patterns
+    for (const [lang, pattern] of Object.entries(patterns)) {
+      const matches = text.match(pattern);
+      scores[lang] = matches ? matches.length : 0;
+    }
+    
+    // Find language with highest score
+    const detectedLang = Object.entries(scores).reduce((a, b) => 
+      scores[a[0]] > scores[b[0]] ? a : b
+    )[0];
+    
+    // If no patterns matched, default to English
+    const result = scores[detectedLang] > 0 ? detectedLang : 'en';
+    
+    log('info', `Fallback language detection result: ${result}`, scores);
+    return result;
   }
 
   /**
@@ -1224,6 +1440,20 @@ export class AIAdapter {
     return {
       chromeAIAvailable: this.isChromeAIAvailable,
       fallbackMode: this.fallbackMode,
+      capabilities: {
+        summarization: this.isChromeAIAvailable || this.anthropicAvailable || this.googleAvailable || this.openaiAvailable || this.xaiAvailable,
+        qa: this.isChromeAIAvailable || this.anthropicAvailable || this.googleAvailable || this.openaiAvailable || this.xaiAvailable,
+        languageDetection: this.isChromeAIAvailable, // Chrome AI only
+        translation: this.isChromeAIAvailable, // Chrome AI only
+        proofreading: this.isChromeAIAvailable // Chrome AI only
+      },
+      providers: {
+        chromeAI: this.isChromeAIAvailable,
+        anthropic: this.anthropicAvailable,
+        google: this.googleAvailable,
+        openai: this.openaiAvailable,
+        xai: this.xaiAvailable
+      },
       timestamp: Date.now()
     };
   }
