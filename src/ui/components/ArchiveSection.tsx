@@ -55,7 +55,11 @@ const ArchiveSection: React.FC<ArchiveSectionProps> = ({
               >
                 <button
                   onClick={() => onLoadConversation(conversation.id)}
-                  className="block w-full text-left px-3 py-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-all hover:scale-[1.01] border border-border/20"
+                  className={`block w-full text-left px-3 py-3 rounded-lg transition-all hover:scale-[1.01] border border-border/20 ${
+                    activeConversationId === conversation.id 
+                      ? "bg-muted/30 hover:bg-muted/50" 
+                      : "hover:bg-muted/20"
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-medium text-foreground truncate flex-1 pr-2">

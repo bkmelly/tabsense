@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Send, ChevronDown, Loader2 } from 'lucide-react';
+import { Sparkles, Send, ChevronDown, Loader2, Lightbulb, Brain, BarChart3, FileText } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { ScrollArea } from '../components/ui/scroll-area';
@@ -54,21 +54,24 @@ const QASection: React.FC<QASectionProps> = ({
               <div className="space-y-2">
                 <button
                   onClick={() => setQuestion("What is React?")}
-                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-muted/80 hover:bg-muted transition-all hover:scale-[1.02] border border-border/30"
+                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-muted/80 hover:bg-muted transition-all hover:scale-[1.02] border border-border/30 flex items-center gap-2"
                 >
-                  💡 What is React?
+                  <Lightbulb className="w-3 h-3" />
+                  What is React?
                 </button>
                 <button
                   onClick={() => setQuestion("Explain React hooks")}
-                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-muted/80 hover:bg-muted transition-all hover:scale-[1.02] border border-border/30"
+                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-muted/80 hover:bg-muted transition-all hover:scale-[1.02] border border-border/30 flex items-center gap-2"
                 >
-                  🔗 Explain React hooks
+                  <Brain className="w-3 h-3" />
+                  Explain React hooks
                 </button>
                 <button
                   onClick={() => setQuestion("Analyze sentiment in comments")}
-                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-muted/80 hover:bg-muted transition-all hover:scale-[1.02] border border-border/30"
+                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-muted/80 hover:bg-muted transition-all hover:scale-[1.02] border border-border/30 flex items-center gap-2"
                 >
-                  😊 Analyze sentiment in comments
+                  <BarChart3 className="w-3 h-3" />
+                  Analyze sentiment in comments
                 </button>
               </div>
             </div>

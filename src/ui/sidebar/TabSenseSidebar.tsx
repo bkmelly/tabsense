@@ -3,7 +3,7 @@ import {
   Sparkles, Download, Send, X, Loader2, CheckCircle2, ExternalLink, ChevronDown, ChevronLeft, ChevronRight,
   Globe, BookOpen, Video, MessageSquare, Newspaper, Zap, Flame, Brain, Lightbulb, 
   Smile, Frown, Meh, Star, HelpCircle, ThumbsUp, ThumbsDown, Minus, MoreVertical, Share2, 
-  Copy, Trash2, Settings, History, Eye, EyeOff, Archive
+  Copy, Trash2, Settings, History, Eye, EyeOff, Archive, BarChart3, Scale, FileText
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -107,7 +107,7 @@ const aiResponses: Record<string, string> = {
 const TabSenseSidebar: React.FC = () => {
   const [tabs, setTabs] = useState<TabSummary[]>(initialTabs);
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [expandedTabId, setExpandedTabId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
@@ -123,8 +123,8 @@ const TabSenseSidebar: React.FC = () => {
     ? tabs 
     : tabs.filter(tab => tab.category === selectedCategory);
 
-  // Sample conversation history
-  const conversationHistory = [
+  // Conversation history state
+  const [conversationHistory, setConversationHistory] = useState([
     {
       id: '1',
       title: 'React Performance Optimization'
@@ -157,7 +157,7 @@ const TabSenseSidebar: React.FC = () => {
       id: '8',
       title: 'Database Design Discussion'
     }
-  ];
+  ]);
 
   const handleAskQuestion = () => {
     if (!question.trim() || isTyping) return;
@@ -226,6 +226,50 @@ const TabSenseSidebar: React.FC = () => {
   };
 
   const openSummaryQA = (tab: TabSummary) => {
+    // Create a new conversation with the full summary
+    const conversationId = `summary-${tab.id}-${Date.now()}`;
+    const conversationTitle = `Summary: ${tab.title}`;
+    
+    // Create formatted summary message with proper icons and structure
+    const formattedContent = `**Summary**
+
+${tab.summary}
+
+**Key Points**
+${tab.keyPoints.map(point => `• ${point}`).join('\n')}
+
+${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map(item => `• ${item.label}: ${item.percentage}%`).join('\n')}\n` : ''}${tab.engagementScore ? `**Engagement Score**: ${tab.engagementScore}%\n` : ''}${tab.bias ? `**Bias**: ${tab.bias}\n` : ''}
+
+**Additional Context**
+• This is a comprehensive analysis of the content
+• The summary provides key insights and main points
+• Sentiment analysis helps understand the overall tone
+• Engagement metrics show how well the content performs
+
+**Technical Details**
+• Content has been processed and analyzed
+• Key themes have been extracted and categorized
+• The analysis includes both quantitative and qualitative insights
+• This summary can be used for further research and analysis
+
+---
+*This conversation was created from the summary of "${tab.title}". You can now ask questions about this content.*`;
+    
+    const summaryMessage = {
+      role: "assistant" as const,
+      content: formattedContent,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    // Add to conversation history
+    const newConversation = {
+      id: conversationId,
+      title: conversationTitle
+    };
+    
+    setConversationHistory(prev => [newConversation, ...prev]);
+    setActiveConversationId(conversationId);
+    setMessages([summaryMessage]);
     setSelectedSummaryForQA(tab);
     setIsSummaryQAExpanded(true);
   };
@@ -258,6 +302,35 @@ const TabSenseSidebar: React.FC = () => {
               console.log('Load conversation:', id);
               setActiveConversationId(id);
               setIsArchiveExpanded(false);
+              
+              // Load conversation messages based on ID
+              if (id.startsWith('summary-')) {
+                // This is a summary-based conversation, we'll need to reconstruct it
+                // For now, we'll show a placeholder message with proper formatting
+                setMessages([{
+                  role: "assistant",
+                  content: `**Summary**
+
+This conversation was created from a tab summary. The original summary content would be loaded here with proper formatting including:
+
+**Key Points**
+• Structured bullet points
+• Clean minimalist design
+• Organized sections
+
+**Additional Data**
+• Sentiment analysis (if available)
+• Engagement scores
+• Bias information
+
+---
+*This is a reconstructed conversation from the conversation history.*`,
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                }]);
+              } else {
+                // Load existing conversation messages
+                setMessages([]);
+              }
             }}
             onShareConversation={(id) => console.log('Share conversation:', id)}
             onDeleteConversation={(id) => console.log('Delete conversation:', id)}

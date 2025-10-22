@@ -1,10 +1,12 @@
 import React from 'react';
 import { 
   Send, Loader2, Share2, MoreVertical, Copy, Trash2, Settings, History, 
-  Eye, EyeOff, Lightbulb, ExternalLink, Smile, ChevronDown 
+  Eye, EyeOff, Lightbulb, ExternalLink, Smile, ChevronDown, Brain, BarChart3, FileText
 } from 'lucide-react';
 import { Input } from './ui/input';
+import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
+import SuggestedQuestionsSection from './SuggestedQuestionsSection';
 
 interface Message {
   role: "user" | "assistant";
@@ -83,8 +85,8 @@ const QASection: React.FC<QASectionProps> = ({
       </div>
       
       <div className="flex-1 flex flex-col px-3 pb-4">
-        {/* Messages Area */}
-        <ScrollArea className="flex-1 mb-4">
+        {/* Messages Area - Fixed height, scrolls independently */}
+        <div className={`${showSuggestions ? 'h-80 mb-4' : 'flex-1 mb-4'} overflow-y-auto scrollbar-hide`}>
           <div className="space-y-3">
             {messages.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
@@ -95,23 +97,138 @@ const QASection: React.FC<QASectionProps> = ({
               </div>
             )}
             
-            {messages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`p-3 rounded-xl text-sm leading-relaxed whitespace-pre-line transition-all relative ${
-                  msg.role === "user"
-                    ? "bg-black text-white ml-8"
-                    : "bg-muted/50 mr-8"
-                }`}
-              >
-                {msg.content}
-                {msg.timestamp && (
-                  <div className="absolute top-2 right-2 text-xs opacity-60">
-                    {msg.timestamp}
+            {messages.map((msg, idx) => {
+              // Check if this is a summary message (starts with "**Summary**")
+              const isSummaryMessage = msg.role === "assistant" && msg.content.includes("**Summary**");
+              
+              if (isSummaryMessage) {
+                // Style like tab summary cards - no background, clean text
+                const content = msg.content;
+                const summaryText = content.split('**Summary**')[1]?.split('**Key Points**')[0]?.trim();
+                const keyPointsText = content.split('**Key Points**')[1]?.split('**')[0]?.trim();
+                const sentimentText = content.split('**Sentiment Analysis**')[1]?.split('**')[0]?.trim();
+                const additionalContextText = content.split('**Additional Context**')[1]?.split('**')[0]?.trim();
+                const technicalDetailsText = content.split('**Technical Details**')[1]?.split('**')[0]?.trim();
+                
+                return (
+                  <div key={idx} className="space-y-3">
+                    {/* Summary Section */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Brain className="w-4 h-4 text-primary" />
+                        <h4 className="text-xs font-bold text-foreground">Summary</h4>
+                      </div>
+                      <div className="text-xs text-muted-foreground leading-relaxed pl-6 break-words whitespace-pre-line">
+                        {summaryText}
+                      </div>
+                    </div>
+                    
+                    {/* Key Points Section */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <Lightbulb className="w-4 h-4 text-primary" />
+                        <h4 className="text-xs font-bold text-foreground">Key Points</h4>
+                      </div>
+                      <div className="pl-6 space-y-2">
+                        <ul className="space-y-1.5">
+                          {keyPointsText?.split('\n').filter(line => line.trim().startsWith('•')).map((point, pointIdx) => (
+                            <li key={pointIdx} className="text-xs text-muted-foreground flex items-start gap-2 overflow-hidden">
+                              <span className="text-primary mt-0.5 flex-shrink-0">•</span>
+                              <span className="flex-1 break-words">{point.replace('•', '').trim()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    
+                    {/* Sentiment Analysis Section */}
+                    {sentimentText && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <BarChart3 className="w-4 h-4 text-primary" />
+                          <h4 className="text-xs font-bold text-foreground">Sentiment Analysis</h4>
+                        </div>
+                        <div className="pl-6 space-y-2">
+                          <ul className="space-y-1.5">
+                            {sentimentText.split('\n').filter(line => line.trim().startsWith('•')).map((point, pointIdx) => (
+                              <li key={pointIdx} className="text-xs text-muted-foreground flex items-start gap-2 overflow-hidden">
+                                <span className="text-primary mt-0.5 flex-shrink-0">•</span>
+                                <span className="flex-1 break-words">{point.replace('•', '').trim()}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Additional Context Section */}
+                    {additionalContextText && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <FileText className="w-4 h-4 text-primary" />
+                          <h4 className="text-xs font-bold text-foreground">Additional Context</h4>
+                        </div>
+                        <div className="pl-6 space-y-2">
+                          <ul className="space-y-1.5">
+                            {additionalContextText.split('\n').filter(line => line.trim().startsWith('•')).map((point, pointIdx) => (
+                              <li key={pointIdx} className="text-xs text-muted-foreground flex items-start gap-2 overflow-hidden">
+                                <span className="text-primary mt-0.5 flex-shrink-0">•</span>
+                                <span className="flex-1 break-words">{point.replace('•', '').trim()}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Technical Details Section */}
+                    {technicalDetailsText && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <Settings className="w-4 h-4 text-primary" />
+                          <h4 className="text-xs font-bold text-foreground">Technical Details</h4>
+                        </div>
+                        <div className="pl-6 space-y-2">
+                          <ul className="space-y-1.5">
+                            {technicalDetailsText.split('\n').filter(line => line.trim().startsWith('•')).map((point, pointIdx) => (
+                              <li key={pointIdx} className="text-xs text-muted-foreground flex items-start gap-2 overflow-hidden">
+                                <span className="text-primary mt-0.5 flex-shrink-0">•</span>
+                                <span className="flex-1 break-words">{point.replace('•', '').trim()}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {msg.timestamp && (
+                      <div className="text-xs text-muted-foreground opacity-60 text-right">
+                        {msg.timestamp}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              }
+              
+              // Regular message styling
+              return (
+                <div
+                  key={idx}
+                  className={`p-3 rounded-xl text-sm leading-relaxed whitespace-pre-line transition-all relative ${
+                    msg.role === "user"
+                      ? "bg-black text-white ml-8"
+                      : "bg-muted/50 mr-8"
+                  }`}
+                >
+                  {msg.content}
+                  {msg.timestamp && (
+                    <div className="absolute top-2 right-2 text-xs opacity-60">
+                      {msg.timestamp}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             
             {isTyping && (
               <div className="p-3 rounded-xl text-sm bg-muted/50 mr-8">
@@ -120,52 +237,25 @@ const QASection: React.FC<QASectionProps> = ({
                   <span className="text-muted-foreground">AI is thinking...</span>
                 </div>
               </div>
-            )}
+              )}
+            </div>
           </div>
-        </ScrollArea>
 
-        {/* Suggested Questions - Scrollable */}
+        {/* Suggested Questions Section - Fixed height, scrolls under input */}
         {showSuggestions && (
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-muted-foreground">Suggested Questions</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleShuffle}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Shuffle
-                </button>
-                <button
-                  onClick={() => setShowSuggestions(false)}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  title="Hide suggestions"
-                >
-                  <EyeOff className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="max-h-32 overflow-y-auto scrollbar-hide">
-              <div className="space-y-2 pr-2">
-                {suggestedQuestions.map((q, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setQuestion(q.text)}
-                    className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-all hover:scale-[1.02] border border-border/20 flex items-center gap-2"
-                  >
-                    <q.icon className="w-3 h-3" />
-                    {q.text}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="flex-shrink-0 mb-4">
+            <SuggestedQuestionsSection
+              showSuggestions={showSuggestions}
+              setShowSuggestions={setShowSuggestions}
+              onQuestionClick={(question) => setQuestion(question)}
+              onShuffle={handleShuffle}
+            />
           </div>
         )}
 
         {/* Show suggestions button when hidden */}
         {!showSuggestions && (
-          <div className="flex justify-center">
+          <div className="flex justify-center mb-4">
             <button
               onClick={() => setShowSuggestions(true)}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
@@ -176,94 +266,29 @@ const QASection: React.FC<QASectionProps> = ({
           </div>
         )}
 
-        {/* Input Section */}
-        <div className="mt-4">
+        {/* Input Section - Fixed at bottom */}
+        <div className="flex-shrink-0">
           <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Input
-                placeholder="Ask about your tabs..."
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && !isTyping && onAskQuestion()}
-                disabled={isTyping}
-                className="flex-1 bg-muted/50 border-border/50 focus:border-primary/50 transition-all pr-10"
-              />
-              <button
-                onClick={onAskQuestion}
-                disabled={!question.trim() || isTyping}
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-muted/50 rounded transition-colors disabled:opacity-50"
-              >
-                {isTyping ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-black" />
-                ) : (
-                  <Send className="h-4 w-4 text-black" />
-                )}
-              </button>
-            </div>
-            
-            <div className="flex gap-1 relative">
-              <button
-                onClick={onShareClick}
-                className="p-2 hover:bg-muted/50 rounded transition-colors"
-                title="Share conversation"
-              >
-                <Share2 className="h-4 w-4 text-black" />
-              </button>
-              
-              {/* Dropdown Menu */}
-              <div className="relative">
-                <button
-                  onClick={() => setIsMenuOpen(!isMenuOpen)}
-                  className="p-2 hover:bg-muted/50 rounded transition-colors"
-                  title="More options"
-                >
-                  <MoreVertical className="h-4 w-4 text-black" />
-                </button>
-                
-                {isMenuOpen && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-10" 
-                      onClick={() => setIsMenuOpen(false)}
-                    />
-                    
-                    <div className="absolute bottom-full right-0 mb-2 w-48 bg-white border border-border/20 rounded-lg shadow-lg z-20">
-                      <div className="py-1">
-                        <button
-                          onClick={() => onMenuAction('copy')}
-                          className="w-full px-4 py-2 text-sm text-left hover:bg-muted/50 flex items-center gap-2"
-                        >
-                          <Copy className="h-4 w-4" />
-                          Copy conversation
-                        </button>
-                        <button
-                          onClick={() => onMenuAction('clear')}
-                          className="w-full px-4 py-2 text-sm text-left hover:bg-muted/50 flex items-center gap-2"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Clear history
-                        </button>
-                        <button
-                          onClick={() => onMenuAction('history')}
-                          className="w-full px-4 py-2 text-sm text-left hover:bg-muted/50 flex items-center gap-2"
-                        >
-                          <History className="h-4 w-4" />
-                          View history
-                        </button>
-                        <div className="border-t border-border/20 my-1"></div>
-                        <button
-                          onClick={() => onMenuAction('settings')}
-                          className="w-full px-4 py-2 text-sm text-left hover:bg-muted/50 flex items-center gap-2"
-                        >
-                          <Settings className="h-4 w-4" />
-                          Settings
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+            <Input
+              placeholder="Ask about this summary..."
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && !isTyping && onAskQuestion()}
+              disabled={isTyping}
+              className="flex-1 bg-muted/50 border-border/50 focus:border-primary/50 transition-all"
+            />
+            <Button 
+              onClick={onAskQuestion} 
+              size="icon"
+              disabled={!question.trim() || isTyping}
+              className="bg-primary hover:bg-primary/90 shadow-lg hover:shadow-xl transition-all hover:scale-105"
+            >
+              {isTyping ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
           </div>
         </div>
       </div>
