@@ -106,17 +106,29 @@ const aiResponses: Record<string, string> = {
 
 const TabSenseSidebar: React.FC = () => {
   const [tabs, setTabs] = useState<TabSummary[]>(initialTabs);
-  const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
+  
+  // Main Q&A State (All Tabs)
+  const [mainQuestion, setMainQuestion] = useState("");
+  const [mainMessages, setMainMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [expandedTabId, setExpandedTabId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isQAExpanded, setIsQAExpanded] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
+  
+  // Archive State
   const [isArchiveExpanded, setIsArchiveExpanded] = useState(false);
+  
+  // Summary-Specific Q&A State (Separate from Main Q&A)
   const [isSummaryQAExpanded, setIsSummaryQAExpanded] = useState(false);
   const [selectedSummaryForQA, setSelectedSummaryForQA] = useState<TabSummary | null>(null);
+  const [summaryQuestion, setSummaryQuestion] = useState("");
+  const [summaryMessages, setSummaryMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
+  const [summaryShowSuggestions, setSummaryShowSuggestions] = useState(true);
+  const [summaryIsMenuOpen, setSummaryIsMenuOpen] = useState(false);
+  
+  // Conversation History State
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   const filteredTabs = selectedCategory === "all" 
@@ -159,23 +171,72 @@ const TabSenseSidebar: React.FC = () => {
     }
   ]);
 
-  const handleAskQuestion = () => {
-    if (!question.trim() || isTyping) return;
+  const saveConversationToArchive = (title: string, messages: Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>) => {
+    const conversationId = `conv-${Date.now()}`;
+    const newConversation = {
+      id: conversationId,
+      title: title
+    };
+    
+    setConversationHistory(prev => [newConversation, ...prev]);
+    setActiveConversationId(conversationId);
+    
+    // Store the messages for this conversation (in a real app, this would be saved to a database)
+    console.log(`Saved conversation "${title}" with ${messages.length} messages to archive`);
+  };
+
+  const handleMainAskQuestion = () => {
+    if (!mainQuestion.trim() || isTyping) return;
     
     const now = new Date();
     const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
-    const newMessage = { role: "user" as const, content: question, timestamp };
-    setMessages(prev => [...prev, newMessage]);
-    setQuestion("");
+    const newMessage = { role: "user" as const, content: mainQuestion, timestamp };
+    const updatedMessages = [...mainMessages, newMessage];
+    setMainMessages(updatedMessages);
+    setMainQuestion("");
     setIsTyping(true);
     
     // Simulate AI response
     setTimeout(() => {
-      const response = aiResponses[question.toLowerCase()] || aiResponses.default;
+      const response = aiResponses[mainQuestion.toLowerCase()] || aiResponses.default;
       const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setMessages(prev => [...prev, { role: "assistant", content: response, timestamp: responseTimestamp }]);
+      const finalMessages = [...updatedMessages, { role: "assistant" as const, content: response, timestamp: responseTimestamp }];
+      setMainMessages(finalMessages);
       setIsTyping(false);
+      
+      // Save to archive after first exchange
+      if (updatedMessages.length === 1) {
+        saveConversationToArchive(`Main Q&A: ${mainQuestion.substring(0, 30)}...`, finalMessages);
+      }
+    }, 1500);
+  };
+
+  const handleSummaryAskQuestion = () => {
+    if (!summaryQuestion.trim() || isTyping) return;
+    
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    const newMessage = { role: "user" as const, content: summaryQuestion, timestamp };
+    const updatedMessages = [...summaryMessages, newMessage];
+    setSummaryMessages(updatedMessages);
+    setSummaryQuestion("");
+    setIsTyping(true);
+    
+    // Simulate AI response
+    setTimeout(() => {
+      const response = aiResponses[summaryQuestion.toLowerCase()] || aiResponses.default;
+      const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const finalMessages = [...updatedMessages, { role: "assistant" as const, content: response, timestamp: responseTimestamp }];
+      setSummaryMessages(finalMessages);
+      setIsTyping(false);
+      
+      // Save to archive after first exchange
+      if (updatedMessages.length === 1) {
+        const summaryTitle = selectedSummaryForQA?.title || "Unknown Summary";
+        saveConversationToArchive(`Summary Q&A: ${summaryTitle} - ${summaryQuestion.substring(0, 20)}...`, finalMessages);
+      }
     }, 1500);
   };
 
@@ -261,15 +322,10 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     
-    // Add to conversation history
-    const newConversation = {
-      id: conversationId,
-      title: conversationTitle
-    };
-    
-    setConversationHistory(prev => [newConversation, ...prev]);
-    setActiveConversationId(conversationId);
-    setMessages([summaryMessage]);
+    setSummaryMessages([summaryMessage]);
+    setSummaryQuestion("");
+    setSummaryShowSuggestions(true);
+    setSummaryIsMenuOpen(false);
     setSelectedSummaryForQA(tab);
     setIsSummaryQAExpanded(true);
   };
@@ -277,6 +333,10 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
   const closeSummaryQA = () => {
     setIsSummaryQAExpanded(false);
     setSelectedSummaryForQA(null);
+    setSummaryMessages([]);
+    setSummaryQuestion("");
+    setSummaryShowSuggestions(true);
+    setSummaryIsMenuOpen(false);
   };
 
   return (
@@ -307,7 +367,7 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
               if (id.startsWith('summary-')) {
                 // This is a summary-based conversation, we'll need to reconstruct it
                 // For now, we'll show a placeholder message with proper formatting
-                setMessages([{
+                setMainMessages([{
                   role: "assistant",
                   content: `**Summary**
 
@@ -329,7 +389,7 @@ This conversation was created from a tab summary. The original summary content w
                 }]);
               } else {
                 // Load existing conversation messages
-                setMessages([]);
+                setMainMessages([]);
               }
             }}
             onShareConversation={(id) => console.log('Share conversation:', id)}
@@ -337,39 +397,23 @@ This conversation was created from a tab summary. The original summary content w
           />
         ) : isSummaryQAExpanded ? (
           /* Summary-Specific Q&A Section - Covers everything */
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <div className="p-4 pb-2">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                  <Sparkles className="w-3 h-3 text-primary" />
-                  Ask Questions - {selectedSummaryForQA?.title}
-                </h2>
-                <button
-                  onClick={closeSummaryQA}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            
-            <QASection
-              question={question}
-              setQuestion={setQuestion}
-              messages={messages}
-              isTyping={isTyping}
-              showSuggestions={showSuggestions}
-              setShowSuggestions={setShowSuggestions}
-              isMenuOpen={isMenuOpen}
-              setIsMenuOpen={setIsMenuOpen}
-              onAskQuestion={handleAskQuestion}
-              onShareClick={() => console.log('Share clicked')}
-              onMenuAction={(action) => {
-                console.log('Menu action:', action);
-                setIsMenuOpen(false);
-              }}
-            />
-          </div>
+          <QASection
+            question={summaryQuestion}
+            setQuestion={setSummaryQuestion}
+            messages={summaryMessages}
+            isTyping={isTyping}
+            showSuggestions={summaryShowSuggestions}
+            setShowSuggestions={setSummaryShowSuggestions}
+            isMenuOpen={summaryIsMenuOpen}
+            setIsMenuOpen={setSummaryIsMenuOpen}
+            onAskQuestion={handleSummaryAskQuestion}
+            onShareClick={() => console.log('Share clicked')}
+            onMenuAction={(action) => {
+              console.log('Menu action:', action);
+              setSummaryIsMenuOpen(false);
+            }}
+            onClose={closeSummaryQA}
+          />
         ) : (
           <>
 
@@ -566,15 +610,15 @@ This conversation was created from a tab summary. The original summary content w
         ) : (
           /* Q&A Expanded Section */
           <QASection
-            question={question}
-            setQuestion={setQuestion}
-            messages={messages}
+            question={mainQuestion}
+            setQuestion={setMainQuestion}
+            messages={mainMessages}
             isTyping={isTyping}
             showSuggestions={showSuggestions}
             setShowSuggestions={setShowSuggestions}
             isMenuOpen={isMenuOpen}
             setIsMenuOpen={setIsMenuOpen}
-            onAskQuestion={handleAskQuestion}
+            onAskQuestion={handleMainAskQuestion}
             onShareClick={() => console.log('Share clicked')}
             onMenuAction={(action) => {
               console.log('Menu action:', action);

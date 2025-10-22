@@ -9,7 +9,8 @@
     "scripting",
     "storage",
     "activeTab",
-    "contextMenus"
+    "contextMenus",
+    "sidePanel"
   ],
   
   "host_permissions": [
@@ -21,13 +22,11 @@
   },
   
   "action": {
-    "default_popup": "src/ui/popup/popup.html",
-    "default_title": "Open TabSense"
+    "default_title": "Open TabSense Research Assistant"
   },
   
-  "sidebar_action": {
-    "default_panel": "src/ui/sidebar/sidebar.html",
-    "default_title": "TabSense Research Assistant"
+  "side_panel": {
+    "default_path": "src/ui/sidebar/sidebar.html"
   },
   
   "content_scripts": [

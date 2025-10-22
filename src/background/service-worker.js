@@ -128,6 +128,13 @@ class TabSenseServiceWorker {
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       this.handleTabUpdate(tabId, changeInfo, tab);
     });
+
+    // Handle extension icon click - open side panel
+    chrome.action.onClicked.addListener((tab) => {
+      console.log('[TabSense] Extension icon clicked!', tab);
+      this.openSidebar(tab);
+    });
+
   }
 
   /**
@@ -752,6 +759,32 @@ class TabSenseServiceWorker {
   async handleTabUpdate(tabId, changeInfo, tab) {
     // Will be implemented in later milestones
     log('debug', 'Tab updated', { tabId, changeInfo, url: tab.url });
+  }
+
+  /**
+   * Open the sidebar when extension icon is clicked
+   */
+  async openSidebar(tab) {
+    try {
+      log('info', 'Opening sidebar...');
+      
+      // Try to open the sidebar panel directly
+      // Chrome should use the sidebar_action from manifest
+      await chrome.sidePanel.open({ tabId: tab.id });
+      
+      log('info', 'Sidebar opened successfully');
+    } catch (error) {
+      log('error', 'Failed to open sidebar', error);
+      
+      // Fallback: try to open without tabId
+      try {
+        log('info', 'Trying fallback method...');
+        await chrome.sidePanel.open({});
+        log('info', 'Sidebar opened with fallback method');
+      } catch (fallbackError) {
+        log('error', 'Fallback method also failed', fallbackError);
+      }
+    }
   }
 
   /**

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Send, Loader2, Share2, MoreVertical, Copy, Trash2, Settings, History, X, Lightbulb, ExternalLink, Smile } from 'lucide-react';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
-import SuggestedQuestions from './SuggestedQuestions';
+import SuggestedQuestionsSection from './SuggestedQuestionsSection';
 
 interface FullScreenQAProps {
   isOpen: boolean;
@@ -27,39 +27,20 @@ const FullScreenQA: React.FC<FullScreenQAProps> = ({
   isMenuOpen,
   setIsMenuOpen
 }) => {
-  const [suggestedQuestions] = useState([
-    { id: '1', text: 'What is React?', icon: Lightbulb },
-    { id: '2', text: 'Explain React hooks', icon: ExternalLink },
-    { id: '3', text: 'Analyze sentiment in comments', icon: Smile },
-    { id: '4', text: 'What are the key differences between React and Vue?', icon: Lightbulb },
-    { id: '5', text: 'How does state management work in React?', icon: ExternalLink },
-    { id: '6', text: 'What are the best practices for React components?', icon: Smile },
-    { id: '7', text: 'Explain the React lifecycle methods', icon: Lightbulb },
-    { id: '8', text: 'How to optimize React performance?', icon: ExternalLink },
-  ]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="w-full max-w-4xl h-[80vh] bg-white rounded-lg shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border/20">
-          <h2 className="text-lg font-semibold">Ask Questions</h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-muted/50 rounded transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
         {/* Content */}
         <div className="flex-1 flex overflow-hidden">
           {/* Left Side - Suggested Questions */}
           <div className="w-80 border-r border-border/20 p-4">
-            <SuggestedQuestions
-              questions={suggestedQuestions}
+            <SuggestedQuestionsSection
+              showSuggestions={true}
+              setShowSuggestions={() => {}}
               onQuestionClick={(q) => setQuestion(q)}
               onShuffle={() => console.log('Shuffled questions')}
             />

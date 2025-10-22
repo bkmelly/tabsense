@@ -25,7 +25,11 @@ export default defineConfig({
         sidebar: resolve(__dirname, 'src/ui/sidebar/sidebar.html'),
         'sidebar.jsx': resolve(__dirname, 'src/ui/sidebar/sidebar.jsx'),
         popup: resolve(__dirname, 'src/ui/popup/popup.html'),
-        'popup.js': resolve(__dirname, 'src/ui/popup/popup.js')
+        'popup.js': resolve(__dirname, 'src/ui/popup/popup.js'),
+        
+        // CSS files
+        'styles/main': resolve(__dirname, 'src/ui/styles/main.css'),
+        'styles/sidebar': resolve(__dirname, 'src/ui/styles/sidebar.css')
       },
       output: {
         entryFileNames: (chunkInfo) => {
