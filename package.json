@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && npm run copy-manifest",
+    "build": "vite build && npm run copy-manifest && npm run copy-html",
     "copy-manifest": "copy src\\manifest.json dist\\manifest.json",
+    "copy-html": "copy src\\ui\\sidebar\\sidebar.html dist\\src\\ui\\sidebar\\sidebar.html",
     "build:watch": "vite build --watch",
     "preview": "vite preview",
     "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",

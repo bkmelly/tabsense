@@ -11,22 +11,19 @@ export default defineConfig({
   // Chrome extension specific configuration
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
+    emptyOutDir: false, // Don't empty to preserve sidebar2.js
     rollupOptions: {
       input: {
-        // Background script (service worker)
+        // Background script (service worker) - use the updated service worker
         background: resolve(__dirname, 'src/background/background.js'),
         
         // Content scripts
         content: resolve(__dirname, 'src/content/content-script.js'),
-        'lib/commentNavigator': resolve(__dirname, 'src/lib/commentNavigator.js'),
-        'lib/youtubeExtractor': resolve(__dirname, 'src/lib/youtubeExtractor.js'),
         
-        // UI components - React
-        sidebar: resolve(__dirname, 'src/ui/sidebar/sidebar.html'),
-        'sidebar.jsx': resolve(__dirname, 'src/ui/sidebar/sidebar.jsx'),
+        // UI components
         popup: resolve(__dirname, 'src/ui/popup/popup.html'),
         'popup.js': resolve(__dirname, 'src/ui/popup/popup.js'),
+        sidebar2: resolve(__dirname, 'src/ui/sidebar/sidebar.jsx'),
         
         // CSS files
         'styles/main': resolve(__dirname, 'src/ui/styles/main.css'),
@@ -37,10 +34,8 @@ export default defineConfig({
           // Keep background script as .js
           if (chunkInfo.name === 'background') return 'background.js';
           if (chunkInfo.name === 'content') return 'content.js';
-          if (chunkInfo.name === 'lib/commentNavigator') return 'lib/commentNavigator.js';
-          if (chunkInfo.name === 'lib/youtubeExtractor') return 'lib/youtubeExtractor.js';
           if (chunkInfo.name === 'popup.js') return 'popup.js';
-          if (chunkInfo.name === 'sidebar.jsx') return 'sidebar.js';
+          if (chunkInfo.name === 'sidebar2') return 'sidebar2.js';
           return '[name].js';
         },
         assetFileNames: (assetInfo) => {

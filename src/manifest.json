@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TabSense",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI-powered research assistant for Chrome tabs - Summarize and query your open tabs using Chrome's built-in AI",
   
   "permissions": [
@@ -33,13 +33,6 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_end",
-      "all_frames": false,
-      "type": "module"
-    },
-    {
-      "matches": ["*://www.youtube.com/*", "*://youtube.com/*"],
-      "js": ["lib/commentNavigator.js", "lib/youtubeExtractor.js"],
       "run_at": "document_end",
       "all_frames": false,
       "type": "module"

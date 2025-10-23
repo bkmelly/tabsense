@@ -13,6 +13,7 @@ import { Badge } from '../components/ui/badge';
 import Header from '../components/Header';
 import ArchiveSection from '../components/ArchiveSection';
 import QASection from '../components/QASection';
+import SettingsPage from '../components/SettingsPage';
 import EmptyState from '../components/EmptyState';
 import { ToastContainer, useToast } from '../components/Toast';
 
@@ -26,6 +27,7 @@ import { URLFilter } from '../../lib/urlFilter';
 interface ServiceWorkerMessage {
   action: string;
   payload?: any;
+  data?: any;
 }
 
 interface ServiceWorkerResponse {
@@ -113,58 +115,6 @@ const categories = [
   { id: "news", label: "News", icon: Newspaper },
 ];
 
-const initialTabs: TabSummary[] = [
-  {
-    id: "1",
-    title: "React Documentation - Quick Start",
-    url: "react.dev/learn",
-    favicon: Zap,
-    category: "documentation",
-    summary: "Introduction to React fundamentals including components, props, and state management. Covers JSX syntax, component composition, and the React rendering cycle.",
-    keyPoints: [
-      "React components are JavaScript functions that return markup",
-      "Use useState for adding state to components",
-      "Props pass data from parent to child components",
-      "useEffect handles side effects and lifecycle events"
-    ]
-  },
-  {
-    id: "2",
-    title: "AI Will Replace Developers? - Fireship",
-    url: "youtube.com/watch?v=xyz",
-    favicon: Flame,
-    category: "youtube",
-    sentiment: "neutral",
-    engagementScore: 92,
-    summary: "Discussion on AI's impact on software development. Covers current AI capabilities, limitations, and future outlook for developers in an AI-enhanced world.",
-    sentimentBreakdown: [
-      { label: "Optimistic about AI as a tool", percentage: 52, emoji: Star },
-      { label: "Concerned about job security", percentage: 28, emoji: Frown },
-      { label: "Neutral/Wait and see", percentage: 20, emoji: HelpCircle }
-    ],
-    keyPoints: [
-      "AI is augmenting, not replacing developers",
-      "Focus on problem-solving skills remains crucial",
-      "New AI tools require learning and adaptation"
-    ]
-  },
-  {
-    id: "3",
-    title: "Chrome Extension Development Guide",
-    url: "developer.chrome.com/docs/extensions",
-    favicon: Globe,
-    category: "documentation",
-    sentiment: "positive",
-    bias: "center",
-    engagementScore: 85,
-    summary: "Comprehensive guide to building Chrome extensions using Manifest V3. Covers service workers, content scripts, and modern extension architecture.",
-    keyPoints: [
-      "Manifest V3 introduces service workers",
-      "Content scripts run in web page context",
-      "Background scripts replaced by service workers"
-    ]
-  }
-];
 
 const aiResponses: Record<string, string> = {
   "what is react": "React is a JavaScript library for building user interfaces. Based on your open tabs, React uses a component-based architecture where UIs are built from reusable pieces. The documentation you have open covers the fundamentals including JSX, components, props, and hooks like useState and useEffect.",
@@ -178,10 +128,13 @@ const TabSenseSidebar: React.FC = () => {
   // ==================== STATE MANAGEMENT ====================
   
   // Core Tab Data State
-  const [tabs, setTabs] = useState<TabSummary[]>(initialTabs);
+  const [tabs, setTabs] = useState<TabSummary[]>([]);
   const [isLoadingTabs, setIsLoadingTabs] = useState(false);
   const [serviceWorkerStatus, setServiceWorkerStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [lastLoadTime, setLastLoadTime] = useState<number>(0);
+  
+  // Settings State
+  const [showSettingsPage, setShowSettingsPage] = useState(false);
   
   // Toast notifications
   const { toasts, error: showError, success: showSuccess, removeToast } = useToast();
@@ -209,8 +162,6 @@ const TabSenseSidebar: React.FC = () => {
   const [isSummaryQAExpanded, setIsSummaryQAExpanded] = useState(false);
   const [selectedSummaryForQA, setSelectedSummaryForQA] = useState<TabSummary | null>(null);
   const [summaryQuestion, setSummaryQuestion] = useState("");
-
-  // ==================== CONTENT PROCESSING UTILITIES ====================
 
   /**
    * Validate URL and clean it
@@ -300,8 +251,8 @@ const TabSenseSidebar: React.FC = () => {
           setServiceWorkerStatus('error');
           console.error('[TabSense] Service worker connection failed:', pingResponse.error);
           showError(
-            'Service worker connection failed',
-            pingResponse.error || 'Unable to connect to background service',
+            'Service worker disconnected',
+            'Background service is not responding',
             8000
           );
         }
@@ -466,7 +417,7 @@ const TabSenseSidebar: React.FC = () => {
           4000
         );
       } else {
-        console.warn('[TabSense] No real tab data available, using initial tabs');
+        console.warn('[TabSense] No real tab data available');
         showError(
           'No tab data available',
           'No tabs were found in the service worker response.',
@@ -709,39 +660,21 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
         subtitle="Research Assistant"
         showSettings={true}
         showHistory={true}
-        onSettingsClick={() => console.log('Settings clicked')}
+        onSettingsClick={() => {
+          console.log('[TabSense] Settings button clicked, showSettingsPage:', showSettingsPage);
+          setShowSettingsPage(true);
+          console.log('[TabSense] After setShowSettingsPage(true)');
+        }}
         onHistoryClick={() => setIsArchiveExpanded(true)}
+        onRefreshClick={loadRealTabData}
+        serviceWorkerStatus={serviceWorkerStatus}
       />
       
-      {/* Service Worker Status Indicator */}
-      <div className="px-4 py-2 bg-muted/30 border-b border-border/20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${
-              serviceWorkerStatus === 'connected' ? 'bg-green-500' : 
-              serviceWorkerStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'
-            }`} />
-            <span className="text-xs text-muted-foreground">
-              Service Worker: {serviceWorkerStatus}
-            </span>
-            {isLoadingTabs && (
-              <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-            )}
-          </div>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={loadRealTabData}
-            className="text-xs h-6 px-2"
-          >
-            Refresh Tabs
-          </Button>
-        </div>
-      </div>
-      
       <div className="flex-1 flex flex-col bg-background overflow-hidden">
-        {/* Archive Section - Covers everything */}
-        {isArchiveExpanded ? (
+        {/* Settings Page */}
+        {showSettingsPage ? (
+          <SettingsPage onClose={() => setShowSettingsPage(false)} />
+        ) : isArchiveExpanded ? (
           <ArchiveSection
             conversations={conversationHistory}
             activeConversationId={activeConversationId}

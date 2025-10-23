@@ -3,10 +3,8 @@
  * Enhanced content script for page extraction and communication
  */
 
-// Import Readability for content extraction
-import { Readability } from '@mozilla/readability';
-import { YouTubeExtractor } from '../lib/youtubeExtractor.js';
-import { CommentNavigator } from '../lib/commentNavigator.js';
+// Simple content extraction without external dependencies
+// We'll use basic DOM extraction for YouTube and other pages
 
 // Simple logging function for content script
 function log(level, message, data = null) {
@@ -100,56 +98,20 @@ class PageDataExtractor {
    */
   async extractReadableContent() {
     try {
-      // Try to use Readability if available (bundled with extension)
-      if (typeof Readability !== 'undefined') {
-        // Check if document is too complex for Readability
-        const elementCount = document.querySelectorAll('*').length;
-        
-        if (elementCount > 2000) {
-          log('warn', `Document too complex for Readability (${elementCount} elements), using enhanced fallback`);
-          return this.extractEnhancedContent();
-        }
-        
-        // Create a clone of the document for processing
-        const documentClone = document.cloneNode(true);
-        
-        // Create Readability instance with optimized settings
-        const reader = new Readability(documentClone, {
-          debug: false,
-          maxElemsToParse: Math.min(elementCount, 1500), // Dynamic limit based on complexity
-          nbTopCandidates: 5,
-          charThreshold: 500,
-          classesToPreserve: ['caption', 'emoji', 'hidden'],
-          // Additional options for better handling
-          keepClasses: false,
-          serializer: null
-        });
-        
-        // Parse the document
-        const article = reader.parse();
-        
-        if (article && article.textContent && article.textContent.length > 100) {
-          log('info', 'Readability extraction successful', {
-            title: article.title,
-            length: article.textContent.length,
-            excerpt: article.excerpt,
-            elementCount: elementCount
-          });
-          
-          return article.textContent || article.content || '';
-        } else {
-          log('warn', 'Readability extracted insufficient content, using enhanced fallback');
-          return this.extractEnhancedContent();
-        }
-      }
-      
-      log('warn', 'Readability not available, using enhanced fallback');
+      // Skip Readability since we removed module loading
+      // Go directly to enhanced content extraction
       return this.extractEnhancedContent();
-      
     } catch (error) {
-      log('error', 'Readability extraction failed, using enhanced fallback', error);
-      return this.extractEnhancedContent();
+      log('error', 'Content extraction failed, using basic fallback', error);
+      return this.extractBasicContent();
     }
+  }
+
+  /**
+   * Clean text content (alias for cleanExtractedContent)
+   */
+  cleanTextContent(text) {
+    return this.cleanExtractedContent(text);
   }
 
   /**
@@ -602,35 +564,211 @@ class PageDataExtractor {
   }
 
   /**
+   * Check if current page is a YouTube video
+   * @returns {boolean} True if YouTube video page
+   */
+  isYouTubeVideo() {
+    return location.hostname === 'www.youtube.com' && 
+           location.pathname.includes('/watch') &&
+           location.search.includes('v=');
+  }
+
+  /**
+   * Extract YouTube video data using simple DOM selectors
+   * @returns {Object} YouTube video data
+   */
+  async extractYouTubeData() {
+    try {
+      log('info', 'Extracting YouTube data using DOM selectors');
+      
+      // Wait for page to load
+      await this.waitForElement('h1.ytd-watch-metadata', 5000);
+      
+      // Extract video title
+      const titleElement = document.querySelector('h1.ytd-watch-metadata yt-formatted-string');
+      const title = titleElement ? titleElement.textContent.trim() : 'Unknown Title';
+      
+      // Extract channel name
+      const channelElement = document.querySelector('#owner-name a');
+      const channel = channelElement ? channelElement.textContent.trim() : 'Unknown Channel';
+      
+      // Extract view count
+      const viewElement = document.querySelector('#info span[class*="view"]');
+      const views = viewElement ? viewElement.textContent.trim() : 'Unknown views';
+      
+      // Extract video description
+      const descriptionElement = document.querySelector('#description-text');
+      const description = descriptionElement ? descriptionElement.textContent.trim() : '';
+      
+      // Extract video ID from URL
+      const videoId = new URLSearchParams(location.search).get('v') || '';
+      
+      // Extract comments count (if available)
+      const commentsElement = document.querySelector('#count-text');
+      const commentCount = commentsElement ? commentsElement.textContent.trim() : '0';
+      
+      // Extract comments using DOM selectors
+      const comments = await this.extractYouTubeComments();
+      
+      const youtubeData = {
+        video: {
+          title: title,
+          description: description,
+          channel: channel,
+          views: views,
+          url: location.href,
+          videoId: videoId
+        },
+        comments: comments,
+        metadata: {
+          extractedAt: new Date().toISOString(),
+          url: location.href,
+          commentCount: comments.length
+        }
+      };
+      
+      log('info', 'YouTube data extracted successfully', {
+        title: title.substring(0, 50),
+        channel: channel,
+        views: views
+      });
+      
+      return youtubeData;
+    } catch (error) {
+      log('error', 'Failed to extract YouTube data', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract YouTube comments using simple DOM selectors
+   * @returns {Array} Array of comment objects
+   */
+  async extractYouTubeComments() {
+    try {
+      log('info', 'Extracting YouTube comments using DOM selectors');
+      
+      // Wait for comments section to load
+      await this.waitForElement('#comments', 3000);
+      
+      const comments = [];
+      const commentElements = document.querySelectorAll('ytd-comment-thread-renderer');
+      
+      for (const commentElement of commentElements) {
+        try {
+          const textElement = commentElement.querySelector('#content-text');
+          const authorElement = commentElement.querySelector('#author-text');
+          const likesElement = commentElement.querySelector('#vote-count-middle');
+          const timestampElement = commentElement.querySelector('a#published-time-text');
+          
+          if (textElement && authorElement) {
+            comments.push({
+              text: textElement.textContent.trim(),
+              author: authorElement.textContent.trim(),
+              likes: likesElement ? parseInt(likesElement.textContent.trim()) || 0 : 0,
+              timestamp: timestampElement ? timestampElement.textContent.trim() : '',
+              url: location.href
+            });
+          }
+        } catch (error) {
+          log('warn', 'Failed to extract individual comment', error);
+        }
+      }
+      
+      log('info', `Extracted ${comments.length} YouTube comments`);
+      return comments;
+    } catch (error) {
+      log('error', 'Failed to extract YouTube comments', error);
+      return [];
+    }
+  }
+
+  /**
+   * Wait for an element to appear in the DOM
+   * @param {string} selector - CSS selector
+   * @param {number} timeout - Timeout in milliseconds
+   * @returns {Promise<Element>} The element when found
+   */
+  async waitForElement(selector, timeout = 5000) {
+    return new Promise((resolve, reject) => {
+      const element = document.querySelector(selector);
+      if (element) {
+        resolve(element);
+        return;
+      }
+      
+      const observer = new MutationObserver((mutations) => {
+        const element = document.querySelector(selector);
+        if (element) {
+          observer.disconnect();
+          resolve(element);
+        }
+      });
+      
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+      
+      setTimeout(() => {
+        observer.disconnect();
+        reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+      }, timeout);
+    });
+  }
+
+  /**
    * Handle extract page data request
    * @param {Function} sendResponse - Response function
    */
   async handleExtractPageData(sendResponse) {
     try {
       // Check if this is a YouTube video page
-      if (YouTubeExtractor.isYouTubeVideo()) {
-        log('info', 'Detected YouTube video page, using YouTube-specific extraction');
+      if (this.isYouTubeVideo()) {
+        log('info', 'Detected YouTube video page, using existing YouTubeExtractor');
         
-        // Use YouTube-specific extraction
-        const extractor = new YouTubeExtractor();
-        const youtubeData = await extractor.extractYouTubeData();
-        
-        // Send YouTube data to service worker
-        await this.sendPageDataToServiceWorker({
-          ...youtubeData,
-          type: 'youtube',
-          url: location.href,
-          extractedAt: new Date().toISOString()
-        });
-        
-        sendResponse({
-          success: true,
-          data: {
-            message: 'YouTube data extracted and sent to service worker',
-            pageData: youtubeData
-          }
-        });
-        return;
+        // Use the existing YouTubeExtractor that's loaded by manifest
+        if (window.YouTubeExtractor) {
+          const extractor = new window.YouTubeExtractor();
+          const youtubeData = await extractor.extractYouTubeData();
+          
+          // Send YouTube data to service worker
+          await this.sendPageDataToServiceWorker({
+            ...youtubeData,
+            type: 'youtube',
+            url: location.href,
+            extractedAt: new Date().toISOString()
+          });
+          
+          sendResponse({
+            success: true,
+            data: {
+              message: 'YouTube data extracted and sent to service worker',
+              pageData: youtubeData
+            }
+          });
+          return;
+        } else {
+          log('warn', 'YouTubeExtractor not available, falling back to simple extraction');
+          // Fallback to simple extraction
+          const youtubeData = await this.extractYouTubeData();
+          
+          await this.sendPageDataToServiceWorker({
+            ...youtubeData,
+            type: 'youtube',
+            url: location.href,
+            extractedAt: new Date().toISOString()
+          });
+          
+          sendResponse({
+            success: true,
+            data: {
+              message: 'YouTube data extracted (fallback) and sent to service worker',
+              pageData: youtubeData
+            }
+          });
+          return;
+        }
       }
 
       // Standard page extraction for non-YouTube pages
@@ -702,8 +840,23 @@ class PageDataExtractor {
     try {
       log('info', 'YouTube data extraction requested');
 
+      // Load modules if not already loaded
+      if (!this.modulesLoaded) {
+        console.log('[TabSense] Loading modules for YouTube extraction...');
+        const loaded = await loadModules();
+        if (!loaded) {
+          sendResponse({
+            success: false,
+            error: 'Failed to load required modules'
+          });
+          return;
+        }
+        this.modulesLoaded = true;
+        console.log('[TabSense] Modules loaded successfully');
+      }
+
       // Check if we're on a YouTube video page
-      if (!YouTubeExtractor.isYouTubeVideo()) {
+      if (!window.YouTubeExtractor || !window.YouTubeExtractor.isYouTubeVideo || !window.YouTubeExtractor.isYouTubeVideo()) {
         sendResponse({
           success: false,
           error: 'Not on a YouTube video page',
@@ -713,7 +866,7 @@ class PageDataExtractor {
       }
 
       // Extract YouTube data
-      const extractor = new YouTubeExtractor();
+        const extractor = new window.YouTubeExtractor();
       const youtubeData = await extractor.extractYouTubeData();
 
       log('info', 'YouTube data extracted successfully', {
@@ -744,8 +897,21 @@ class PageDataExtractor {
     try {
       log('info', 'YouTube comments retrieval requested');
 
+      // Load modules if not already loaded
+      if (!this.modulesLoaded) {
+        const loaded = await loadModules();
+        if (!loaded) {
+          sendResponse({
+            success: false,
+            error: 'Failed to load required modules'
+          });
+          return;
+        }
+        this.modulesLoaded = true;
+      }
+
       // Check if we're on a YouTube video page
-      if (!YouTubeExtractor.isYouTubeVideo()) {
+      if (!window.YouTubeExtractor || !window.YouTubeExtractor.isYouTubeVideo || !window.YouTubeExtractor.isYouTubeVideo()) {
         sendResponse({
           success: false,
           error: 'Not on a YouTube video page',
@@ -757,7 +923,7 @@ class PageDataExtractor {
       const limit = request.limit || 500;
 
       // Extract comments
-      const extractor = new YouTubeExtractor();
+        const extractor = new window.YouTubeExtractor();
       const comments = await extractor.extractComments(limit);
 
       log('info', 'YouTube comments extracted', {
@@ -787,8 +953,21 @@ class PageDataExtractor {
     try {
       log('info', 'Comment navigation requested', { username: request.username });
 
+      // Load modules if not already loaded
+      if (!this.modulesLoaded) {
+        const loaded = await loadModules();
+        if (!loaded) {
+          sendResponse({
+            success: false,
+            error: 'Failed to load required modules'
+          });
+          return;
+        }
+        this.modulesLoaded = true;
+      }
+
       // Check if we're on a YouTube video page
-      if (!YouTubeExtractor.isYouTubeVideo()) {
+      if (!window.YouTubeExtractor || !window.YouTubeExtractor.isYouTubeVideo || !window.YouTubeExtractor.isYouTubeVideo()) {
         sendResponse({
           success: false,
           error: 'Not on a YouTube video page',
@@ -798,7 +977,7 @@ class PageDataExtractor {
       }
 
       // Navigate to comment
-      const navigator = new CommentNavigator();
+        const navigator = new window.CommentNavigator();
       navigator.navigateToComment(request.username);
 
       log('info', 'Comment navigation executed', {

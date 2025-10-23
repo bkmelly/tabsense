@@ -10,6 +10,11 @@ import { configManager, DEFAULT_CONFIG } from '../config/index.js';
 import { CredentialManager } from '../lib/credentialManager.js';
 import { AIAdapter } from '../lib/aiAdapter.js';
 import { log } from '../utils/index.js';
+import { unifiedAPI } from '../lib/api/unifiedAPI.js';
+import { ContentExtractor } from '../lib/contentExtractor.js';
+import { ContentScorer } from '../lib/contentScorer.js';
+import { URLFilter } from '../lib/urlFilter.js';
+import { PageClassifier } from '../lib/pageClassifier.js';
 
 console.log('[TabSense] Service worker imports loaded');
 
@@ -24,6 +29,14 @@ class TabSenseServiceWorker {
     this.credentialManager = new CredentialManager();
     this.aiAdapter = new AIAdapter();
     this.processingTabs = new Set(); // Track tabs being processed
+    this.apiInitialized = false;
+    
+    // Enhanced content processing instances
+    this.contentExtractor = new ContentExtractor();
+    this.contentScorer = new ContentScorer();
+    this.urlFilter = new URLFilter();
+    this.pageClassifier = new PageClassifier();
+    
     this.setupMessageHandlers();
   }
 
@@ -106,8 +119,17 @@ class TabSenseServiceWorker {
     
     // YouTube-specific messages (Phase 1.2)
     this.messageHandlers.set('EXTRACT_YOUTUBE_DATA', this.handleExtractYouTubeData.bind(this));
-    this.messageHandlers.set('GET_YOUTUBE_COMMENTS', this.handleGetYouTubeComments.bind(this));
-    this.messageHandlers.set('NAVIGATE_TO_COMMENT', this.handleNavigateToComment.bind(this));
+    
+    // API management messages
+    this.messageHandlers.set('INITIALIZE_APIS', this.handleInitializeAPIs.bind(this));
+    this.messageHandlers.set('GET_API_STATUS', this.handleGetAPIStatus.bind(this));
+    this.messageHandlers.set('EXTRACT_DATA_FROM_URL', this.handleExtractDataFromUrl.bind(this));
+    
+    // API Key Management
+    this.messageHandlers.set('SAVE_API_KEY', this.handleSaveAPIKey.bind(this));
+    this.messageHandlers.set('GET_API_KEYS', this.handleGetAPIKeys.bind(this));
+    this.messageHandlers.set('DELETE_API_KEY', this.handleDeleteAPIKey.bind(this));
+    this.messageHandlers.set('TOGGLE_API_ENABLED', this.handleToggleAPIEnabled.bind(this));
   }
 
   /**
@@ -160,7 +182,10 @@ class TabSenseServiceWorker {
         const result = await handler(payload, sender);
         sendResponse({ success: true, data: result });
       } else {
-        log('warn', `No handler for action: ${action}`);
+        log('warn', `Unknown message action: ${action}`, { 
+          availableHandlers: Array.from(this.messageHandlers.keys()),
+          messageHandlersCount: this.messageHandlers.size
+        });
         sendResponse({ success: false, error: `Unknown action: ${action}` });
       }
       
@@ -368,8 +393,32 @@ class TabSenseServiceWorker {
         };
       }
 
-      // Use the existing EXTRACT_PAGE_DATA flow for YouTube pages
-      log('info', 'Using EXTRACT_PAGE_DATA flow for YouTube extraction...');
+      // Try using the new API system first
+      if (this.apiInitialized) {
+        try {
+          log('info', 'Using YouTube API for extraction...');
+          const data = await unifiedAPI.extractDataFromUrl(sender.tab.url);
+          
+          if (data && data.type === 'youtube') {
+            log('info', 'YouTube data extracted via API', {
+              videoTitle: data.video?.title?.substring(0, 50),
+              commentCount: data.comments?.length || 0,
+              channel: data.video?.channelTitle
+            });
+
+            return {
+              success: true,
+              data: data,
+              message: 'YouTube data extracted via API'
+            };
+          }
+        } catch (apiError) {
+          log('warn', 'YouTube API extraction failed, falling back to content script', apiError);
+        }
+      }
+
+      // Fallback to content script extraction
+      log('info', 'Using content script for YouTube extraction...');
       
       try {
         log('info', 'Sending EXTRACT_PAGE_DATA message to tab:', sender.tab.id, 'URL:', sender.tab.url);
@@ -413,141 +462,6 @@ class TabSenseServiceWorker {
       }
     } catch (error) {
       log('error', 'YouTube extraction failed', error);
-      return {
-        success: false,
-        error: error.message,
-        data: null
-      };
-    }
-  }
-
-  /**
-   * Handle YouTube comments retrieval request
-   */
-  async handleGetYouTubeComments(payload, sender) {
-    log('info', 'YouTube comments retrieval requested', { sender: sender.tab?.url });
-
-    try {
-      // Check if we're on a YouTube video page
-      const isYouTubeVideo = sender.tab?.url && (
-        sender.tab.url.includes('youtube.com/watch') || 
-        sender.tab.url.includes('youtu.be/')
-      );
-
-      if (!isYouTubeVideo) {
-        return {
-          success: false,
-          error: 'Not on a YouTube video page',
-          data: null
-        };
-      }
-
-      const limit = payload.limit || 500;
-
-      // Execute comment extraction in the content script
-      // Note: YouTubeExtractor is already loaded via content script on YouTube pages
-      const extractionResults = await chrome.scripting.executeScript({
-        target: { tabId: sender.tab.id },
-        func: async (limit) => {
-          // Check if YouTubeExtractor is available
-          if (typeof YouTubeExtractor === 'undefined') {
-            throw new Error('YouTubeExtractor not available - content script may not be loaded');
-          }
-          const extractor = new YouTubeExtractor();
-          return await extractor.extractComments(limit);
-        },
-        args: [limit]
-      });
-
-      if (extractionResults && extractionResults[0] && extractionResults[0].result) {
-        const comments = extractionResults[0].result;
-        
-        log('info', 'YouTube comments extracted', {
-          commentCount: comments.length,
-          limit: limit
-        });
-
-        return {
-          success: true,
-          data: comments,
-          message: `Extracted ${comments.length} comments`
-        };
-      } else {
-        return {
-          success: false,
-          error: 'Failed to extract YouTube comments',
-          data: null
-        };
-      }
-    } catch (error) {
-      log('error', 'YouTube comments extraction failed', error);
-      return {
-        success: false,
-        error: error.message,
-        data: null
-      };
-    }
-  }
-
-  /**
-   * Handle comment navigation request
-   */
-  async handleNavigateToComment(payload, sender) {
-    log('info', 'Comment navigation requested', { 
-      username: payload.username,
-      sender: sender.tab?.url 
-    });
-
-    try {
-      // Check if we're on a YouTube video page
-      const isYouTubeVideo = sender.tab?.url && (
-        sender.tab.url.includes('youtube.com/watch') || 
-        sender.tab.url.includes('youtu.be/')
-      );
-
-      if (!isYouTubeVideo) {
-        return {
-          success: false,
-          error: 'Not on a YouTube video page',
-          data: null
-        };
-      }
-
-      // Execute comment navigation in the content script
-      // Note: CommentNavigator is already loaded via content script on YouTube pages
-      const navigationResults = await chrome.scripting.executeScript({
-        target: { tabId: sender.tab.id },
-        func: async (username) => {
-          // Check if CommentNavigator is available
-          if (typeof CommentNavigator === 'undefined') {
-            throw new Error('CommentNavigator not available - content script may not be loaded');
-          }
-          const navigator = new CommentNavigator();
-          navigator.navigateToComment(username);
-          return { success: true, username };
-        },
-        args: [payload.username]
-      });
-
-      if (navigationResults && navigationResults[0] && navigationResults[0].result) {
-        log('info', 'Comment navigation executed', {
-          username: payload.username
-        });
-
-        return {
-          success: true,
-          data: navigationResults[0].result,
-          message: `Navigated to comment by ${payload.username}`
-        };
-      } else {
-        return {
-          success: false,
-          error: 'Failed to navigate to comment',
-          data: null
-        };
-      }
-    } catch (error) {
-      log('error', 'Comment navigation failed', error);
       return {
         success: false,
         error: error.message,
@@ -683,9 +597,27 @@ class TabSenseServiceWorker {
 
       if (response && response.success) {
         log('info', 'Page data extraction successful');
+        
+        // Enhanced processing with backend lib functions
+        const enhancedPageData = await this.processPageData(response.data.pageData, tabUrl);
+        
+        // Store the enhanced page data
+        await this.storeTabData({
+          ...enhancedPageData,
+          url: tabUrl,
+          title: sender.tab?.title || response.data.pageData?.title,
+          extractedAt: new Date().toISOString()
+        });
+        
+        log('info', 'Enhanced page data stored successfully', { 
+          url: tabUrl,
+          qualityScore: enhancedPageData.qualityScore,
+          category: enhancedPageData.category
+        });
+        
         return {
           success: true,
-          data: response.data
+          data: enhancedPageData
         };
       } else {
         throw new Error(response?.error || 'Page data extraction failed');
@@ -697,6 +629,87 @@ class TabSenseServiceWorker {
         success: false,
         error: error.message
       };
+    }
+  }
+
+  /**
+   * Process page data using enhanced backend functions
+   * @param {Object} rawPageData - Raw page data from content script
+   * @param {string} url - Page URL
+   * @returns {Object} Enhanced page data
+   */
+  async processPageData(rawPageData, url) {
+    try {
+      log('info', 'Processing page data with enhanced backend functions', { url });
+
+      // 1. URL validation and filtering
+      const isValidUrl = this.urlFilter.shouldProcessUrl(url, rawPageData.title || '');
+      if (!isValidUrl) {
+        log('warn', 'URL filtered out by URLFilter', { url, title: rawPageData.title });
+        throw new Error('URL does not meet processing criteria');
+      }
+
+      // 2. Content scoring and quality assessment
+      const qualityResult = this.contentScorer.score({
+        content: rawPageData.content || { sections: [] },
+        metadata: rawPageData.metadata || {},
+        stats: {
+          wordCount: this.contentScorer.getWordCount(rawPageData.content),
+          contentDensity: this.contentScorer.calculateContentDensity(rawPageData.content),
+          hasHeadings: this.contentScorer.hasHeadings(rawPageData.content)
+        }
+      });
+
+      // 3. Page classification
+      const classification = this.pageClassifier.classify({
+        url: url,
+        title: rawPageData.title || '',
+        content: rawPageData.content || '',
+        metadata: rawPageData.metadata || {}
+      });
+
+      // 4. Enhanced metadata processing
+      const enhancedMetadata = await this.contentScorer.processMetadata({
+        url: url,
+        title: rawPageData.title || '',
+        content: rawPageData.content || '',
+        metadata: rawPageData.metadata || {},
+        structure: rawPageData.structure || {}
+      });
+
+      // 5. Create enhanced page data object
+      const enhancedPageData = {
+        // Core data
+        url: url,
+        title: rawPageData.title || 'Untitled',
+        content: rawPageData.content || '',
+        
+        // Enhanced metadata
+        ...enhancedMetadata,
+        
+        // Quality and classification
+        qualityScore: qualityResult.scores.overall,
+        qualityPassed: qualityResult.passed,
+        qualityReason: qualityResult.reason,
+        category: classification.category,
+        confidence: classification.confidence,
+        
+        // Processing metadata
+        processedAt: new Date().toISOString(),
+        processingVersion: '2.0'
+      };
+
+      log('info', 'Page data processing completed', {
+        url,
+        qualityScore: enhancedPageData.qualityScore,
+        category: enhancedPageData.category,
+        wordCount: enhancedPageData.wordCount
+      });
+
+      return enhancedPageData;
+    } catch (error) {
+      log('error', 'Failed to process page data', error);
+      throw error;
     }
   }
 
@@ -1379,6 +1392,263 @@ class TabSenseServiceWorker {
         success: false,
         error: error.message
       };
+    }
+  }
+
+  // ==================== API MANAGEMENT HANDLERS ====================
+
+  /**
+   * Initialize API services with keys
+   */
+  async handleInitializeAPIs(payload, sendResponse) {
+    try {
+      log('info', 'Initializing API services', { hasKeys: !!payload.apiKeys });
+      
+      const { apiKeys } = payload;
+      await unifiedAPI.initialize(apiKeys);
+      this.apiInitialized = true;
+      
+      log('info', 'API services initialized successfully');
+      sendResponse({
+        success: true,
+        data: { message: 'API services initialized successfully' }
+      });
+    } catch (error) {
+      log('error', 'Failed to initialize API services', error);
+      sendResponse({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get API status for all services
+   */
+  async handleGetAPIStatus(sendResponse) {
+    try {
+      log('info', 'Getting API status');
+      
+      const status = await unifiedAPI.getAPIStatus();
+      
+      sendResponse({
+        success: true,
+        data: status
+      });
+    } catch (error) {
+      log('error', 'Failed to get API status', error);
+      sendResponse({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Extract data from URL using appropriate API service
+   */
+  async handleExtractDataFromUrl(payload, sendResponse) {
+    try {
+      const { url } = payload;
+      log('info', 'Extracting data from URL using API services', { url });
+      
+      const data = await unifiedAPI.extractDataFromUrl(url);
+      
+      if (data) {
+        // Store the extracted data
+        await this.storeTabData({
+          ...data,
+          url: url,
+          extractedAt: new Date().toISOString()
+        });
+        
+        log('info', 'Data extracted and stored successfully', { 
+          type: data.type,
+          hasVideo: !!data.video,
+          commentCount: data.comments?.length || 0
+        });
+        
+        sendResponse({
+          success: true,
+          data: data
+        });
+      } else {
+        sendResponse({
+          success: false,
+          error: 'URL not supported by any API service'
+        });
+      }
+    } catch (error) {
+      log('error', 'Failed to extract data from URL', error);
+      sendResponse({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  // ==================== API KEY MANAGEMENT HANDLERS ====================
+
+  /**
+   * Save API key for a specific provider
+   */
+  async handleSaveAPIKey(payload, sender) {
+    try {
+      const { provider, apiKey, type = 'ai' } = payload;
+      log('info', 'Saving API key', { provider, type, hasKey: !!apiKey });
+
+      if (!provider || !apiKey) {
+        throw new Error('Provider and API key are required');
+      }
+
+      // Store the API key
+      const storageKey = type === 'other' ? 'other_api_keys' : 'ai_api_keys';
+      const result = await chrome.storage.local.get([storageKey]);
+      const keys = result[storageKey] || {};
+      
+      keys[provider] = apiKey;
+      
+      await chrome.storage.local.set({ [storageKey]: keys });
+      
+      // Also store in the legacy format for AI providers
+      if (type === 'ai') {
+        await chrome.storage.local.set({ [`${provider}_api_key`]: apiKey });
+      }
+
+      // Reinitialize APIs if this is an "other" API
+      if (type === 'other') {
+        try {
+          await unifiedAPI.initialize();
+          log('info', 'APIs reinitialized after saving key', { provider });
+        } catch (error) {
+          log('warn', 'Failed to reinitialize APIs after saving key', error);
+        }
+      }
+
+      log('info', 'API key saved successfully', { provider, type });
+      
+      return { message: 'API key saved successfully' };
+    } catch (error) {
+      log('error', 'Failed to save API key', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all stored API keys
+   */
+  async handleGetAPIKeys(payload, sender) {
+    try {
+      log('info', 'Getting all API keys');
+
+      const [aiResult, otherResult] = await Promise.all([
+        chrome.storage.local.get(['ai_api_keys']),
+        chrome.storage.local.get(['other_api_keys'])
+      ]);
+
+      const aiKeys = aiResult.ai_api_keys || {};
+      const otherKeys = otherResult.other_api_keys || {};
+
+      // Also get legacy format keys
+      const legacyKeys = {};
+      const providers = ['openai', 'anthropic', 'google', 'xai'];
+      for (const provider of providers) {
+        const result = await chrome.storage.local.get([`${provider}_api_key`]);
+        if (result[`${provider}_api_key`]) {
+          legacyKeys[provider] = result[`${provider}_api_key`];
+        }
+      }
+
+      // Merge legacy keys with current keys
+      const allAiKeys = { ...legacyKeys, ...aiKeys };
+
+      log('info', 'API keys retrieved', { 
+        aiCount: Object.keys(allAiKeys).length,
+        otherCount: Object.keys(otherKeys).length
+      });
+
+      return {
+        ai: allAiKeys,
+        other: otherKeys
+      };
+    } catch (error) {
+      log('error', 'Failed to get API keys', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete API key for a specific provider
+   */
+  async handleDeleteAPIKey(payload, sender) {
+    try {
+      const { provider, type = 'ai' } = payload;
+      log('info', 'Deleting API key', { provider, type });
+
+      if (!provider) {
+        throw new Error('Provider is required');
+      }
+
+      // Remove from storage
+      const storageKey = type === 'other' ? 'other_api_keys' : 'ai_api_keys';
+      const result = await chrome.storage.local.get([storageKey]);
+      const keys = result[storageKey] || {};
+      
+      delete keys[provider];
+      
+      await chrome.storage.local.set({ [storageKey]: keys });
+      
+      // Also remove from legacy format for AI providers
+      if (type === 'ai') {
+        await chrome.storage.local.remove([`${provider}_api_key`]);
+      }
+
+      log('info', 'API key deleted successfully', { provider, type });
+      
+      return { message: 'API key deleted successfully' };
+    } catch (error) {
+      log('error', 'Failed to delete API key', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Toggle API enabled/disabled state
+   */
+  async handleToggleAPIEnabled(payload, sender) {
+    try {
+      const { provider, enabled, type = 'ai' } = payload;
+      log('info', 'Toggling API enabled state', { provider, enabled, type });
+
+      if (!provider || typeof enabled !== 'boolean') {
+        throw new Error('Provider and enabled state are required');
+      }
+
+      // Store the enabled state
+      const storageKey = type === 'other' ? 'other_api_enabled' : 'ai_api_enabled';
+      const result = await chrome.storage.local.get([storageKey]);
+      const enabledStates = result[storageKey] || {};
+      
+      enabledStates[provider] = enabled;
+      
+      await chrome.storage.local.set({ [storageKey]: enabledStates });
+
+      // Reinitialize APIs if this is an "other" API and it was enabled
+      if (type === 'other' && enabled) {
+        try {
+          await unifiedAPI.initialize();
+          log('info', 'APIs reinitialized after enabling', { provider });
+        } catch (error) {
+          log('warn', 'Failed to reinitialize APIs after enabling', error);
+        }
+      }
+
+      log('info', 'API enabled state updated', { provider, enabled, type });
+      
+      return { message: 'API enabled state updated' };
+    } catch (error) {
+      log('error', 'Failed to toggle API enabled state', error);
+      throw error;
     }
   }
 }
