@@ -5,6 +5,8 @@
 
 // Import Readability for content extraction
 import { Readability } from '@mozilla/readability';
+import { YouTubeExtractor } from '../lib/youtubeExtractor.js';
+import { CommentNavigator } from '../lib/commentNavigator.js';
 
 // Simple logging function for content script
 function log(level, message, data = null) {
@@ -25,6 +27,9 @@ function log(level, message, data = null) {
 
 // Initialize content script
 log('info', 'TabSense content script loaded on:', location.href);
+console.log('[TabSense] Content script loaded successfully on:', location.href);
+console.log('[TabSense] Document ready state:', document.readyState);
+console.log('[TabSense] YouTube detection:', location.href.includes('youtube.com'));
 
 /**
  * Page Data Extractor Class
@@ -576,6 +581,18 @@ class PageDataExtractor {
           this.handlePing(sendResponse);
           return true;
 
+        case 'EXTRACT_YOUTUBE_DATA':
+          this.handleExtractYouTubeData(sendResponse);
+          return true;
+
+        case 'GET_YOUTUBE_COMMENTS':
+          this.handleGetYouTubeComments(request, sendResponse);
+          return true;
+
+        case 'NAVIGATE_TO_COMMENT':
+          this.handleNavigateToComment(request, sendResponse);
+          return true;
+
         default:
           log('warn', 'Unknown message action received', request.action);
           sendResponse({ success: false, error: 'Unknown action' });
@@ -590,6 +607,33 @@ class PageDataExtractor {
    */
   async handleExtractPageData(sendResponse) {
     try {
+      // Check if this is a YouTube video page
+      if (YouTubeExtractor.isYouTubeVideo()) {
+        log('info', 'Detected YouTube video page, using YouTube-specific extraction');
+        
+        // Use YouTube-specific extraction
+        const extractor = new YouTubeExtractor();
+        const youtubeData = await extractor.extractYouTubeData();
+        
+        // Send YouTube data to service worker
+        await this.sendPageDataToServiceWorker({
+          ...youtubeData,
+          type: 'youtube',
+          url: location.href,
+          extractedAt: new Date().toISOString()
+        });
+        
+        sendResponse({
+          success: true,
+          data: {
+            message: 'YouTube data extracted and sent to service worker',
+            pageData: youtubeData
+          }
+        });
+        return;
+      }
+
+      // Standard page extraction for non-YouTube pages
       const pageData = await this.extractPageData();
       await this.sendPageDataToServiceWorker(pageData);
       
@@ -647,6 +691,133 @@ class PageDataExtractor {
         title: document.title
       }
     });
+  }
+
+  // ==================== YOUTUBE-SPECIFIC HANDLERS ====================
+
+  /**
+   * Handle YouTube data extraction request
+   */
+  async handleExtractYouTubeData(sendResponse) {
+    try {
+      log('info', 'YouTube data extraction requested');
+
+      // Check if we're on a YouTube video page
+      if (!YouTubeExtractor.isYouTubeVideo()) {
+        sendResponse({
+          success: false,
+          error: 'Not on a YouTube video page',
+          data: null
+        });
+        return;
+      }
+
+      // Extract YouTube data
+      const extractor = new YouTubeExtractor();
+      const youtubeData = await extractor.extractYouTubeData();
+
+      log('info', 'YouTube data extracted successfully', {
+        videoTitle: youtubeData.video?.title?.substring(0, 50),
+        commentCount: youtubeData.comments?.length || 0,
+        hasTranscript: !!youtubeData.video?.transcript
+      });
+
+      sendResponse({
+        success: true,
+        data: youtubeData,
+        message: 'YouTube data extracted successfully'
+      });
+    } catch (error) {
+      log('error', 'YouTube extraction failed', error);
+      sendResponse({
+        success: false,
+        error: error.message,
+        data: null
+      });
+    }
+  }
+
+  /**
+   * Handle YouTube comments retrieval request
+   */
+  async handleGetYouTubeComments(request, sendResponse) {
+    try {
+      log('info', 'YouTube comments retrieval requested');
+
+      // Check if we're on a YouTube video page
+      if (!YouTubeExtractor.isYouTubeVideo()) {
+        sendResponse({
+          success: false,
+          error: 'Not on a YouTube video page',
+          data: null
+        });
+        return;
+      }
+
+      const limit = request.limit || 500;
+
+      // Extract comments
+      const extractor = new YouTubeExtractor();
+      const comments = await extractor.extractComments(limit);
+
+      log('info', 'YouTube comments extracted', {
+        commentCount: comments.length,
+        limit: limit
+      });
+
+      sendResponse({
+        success: true,
+        data: comments,
+        message: `Extracted ${comments.length} comments`
+      });
+    } catch (error) {
+      log('error', 'YouTube comments extraction failed', error);
+      sendResponse({
+        success: false,
+        error: error.message,
+        data: null
+      });
+    }
+  }
+
+  /**
+   * Handle comment navigation request
+   */
+  async handleNavigateToComment(request, sendResponse) {
+    try {
+      log('info', 'Comment navigation requested', { username: request.username });
+
+      // Check if we're on a YouTube video page
+      if (!YouTubeExtractor.isYouTubeVideo()) {
+        sendResponse({
+          success: false,
+          error: 'Not on a YouTube video page',
+          data: null
+        });
+        return;
+      }
+
+      // Navigate to comment
+      const navigator = new CommentNavigator();
+      navigator.navigateToComment(request.username);
+
+      log('info', 'Comment navigation executed', {
+        username: request.username
+      });
+
+      sendResponse({
+        success: true,
+        data: { success: true, username: request.username },
+        message: `Navigated to comment by ${request.username}`
+      });
+    } catch (error) {
+      log('error', 'Comment navigation failed', error);
+      sendResponse({
+        success: false,
+        error: error.message,
+        data: null
+      });
+    }
   }
 }
 

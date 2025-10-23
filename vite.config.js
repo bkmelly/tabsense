@@ -15,11 +15,12 @@ export default defineConfig({
     rollupOptions: {
       input: {
         // Background script (service worker)
-        background: resolve(__dirname, 'src/background/service-worker.js'),
+        background: resolve(__dirname, 'src/background/background.js'),
         
         // Content scripts
         content: resolve(__dirname, 'src/content/content-script.js'),
         'lib/commentNavigator': resolve(__dirname, 'src/lib/commentNavigator.js'),
+        'lib/youtubeExtractor': resolve(__dirname, 'src/lib/youtubeExtractor.js'),
         
         // UI components - React
         sidebar: resolve(__dirname, 'src/ui/sidebar/sidebar.html'),
@@ -37,6 +38,7 @@ export default defineConfig({
           if (chunkInfo.name === 'background') return 'background.js';
           if (chunkInfo.name === 'content') return 'content.js';
           if (chunkInfo.name === 'lib/commentNavigator') return 'lib/commentNavigator.js';
+          if (chunkInfo.name === 'lib/youtubeExtractor') return 'lib/youtubeExtractor.js';
           if (chunkInfo.name === 'popup.js') return 'popup.js';
           if (chunkInfo.name === 'sidebar.jsx') return 'sidebar.js';
           return '[name].js';
@@ -51,7 +53,11 @@ export default defineConfig({
     },
     // Chrome extension specific optimizations
     target: 'es2020',
-    minify: 'terser',
+    minify: (chunkInfo) => {
+      // Don't minify service worker to avoid registration issues
+      if (chunkInfo.name === 'background') return false;
+      return 'terser';
+    },
     terserOptions: {
       compress: {
         drop_console: false, // Keep console logs for debugging

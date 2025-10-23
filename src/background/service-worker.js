@@ -23,6 +23,7 @@ class TabSenseServiceWorker {
     this.messageHandlers = new Map();
     this.credentialManager = new CredentialManager();
     this.aiAdapter = new AIAdapter();
+    this.processingTabs = new Set(); // Track tabs being processed
     this.setupMessageHandlers();
   }
 
@@ -102,6 +103,11 @@ class TabSenseServiceWorker {
     // Tab-related messages (will be implemented in later milestones)
     this.messageHandlers.set('GET_TABS', this.handleGetTabs.bind(this));
     this.messageHandlers.set('PROCESS_TAB', this.handleProcessTab.bind(this));
+    
+    // YouTube-specific messages (Phase 1.2)
+    this.messageHandlers.set('EXTRACT_YOUTUBE_DATA', this.handleExtractYouTubeData.bind(this));
+    this.messageHandlers.set('GET_YOUTUBE_COMMENTS', this.handleGetYouTubeComments.bind(this));
+    this.messageHandlers.set('NAVIGATE_TO_COMMENT', this.handleNavigateToComment.bind(this));
   }
 
   /**
@@ -339,6 +345,217 @@ class TabSenseServiceWorker {
     };
   }
 
+  // ==================== YOUTUBE-SPECIFIC HANDLERS (PHASE 1.2) ====================
+
+  /**
+   * Handle YouTube data extraction request
+   */
+  async handleExtractYouTubeData(payload, sender) {
+    log('info', 'YouTube data extraction requested', { sender: sender.tab?.url });
+
+    try {
+      // Check if we're on a YouTube video page
+      const isYouTubeVideo = sender.tab?.url && (
+        sender.tab.url.includes('youtube.com/watch') || 
+        sender.tab.url.includes('youtu.be/')
+      );
+
+      if (!isYouTubeVideo) {
+        return {
+          success: false,
+          error: 'Not on a YouTube video page',
+          data: null
+        };
+      }
+
+      // Use the existing EXTRACT_PAGE_DATA flow for YouTube pages
+      log('info', 'Using EXTRACT_PAGE_DATA flow for YouTube extraction...');
+      
+      try {
+        log('info', 'Sending EXTRACT_PAGE_DATA message to tab:', sender.tab.id, 'URL:', sender.tab.url);
+        const response = await chrome.tabs.sendMessage(sender.tab.id, {
+          action: 'EXTRACT_PAGE_DATA'
+        });
+        
+        log('info', 'Received response from content script', { 
+          success: response?.success,
+          hasData: !!response?.data 
+        });
+
+        if (response && response.success && response.data?.pageData) {
+          const youtubeData = response.data.pageData;
+          log('info', 'YouTube data extracted successfully', {
+            videoTitle: youtubeData.video?.title?.substring(0, 50),
+            commentCount: youtubeData.comments?.length || 0,
+            hasTranscript: !!youtubeData.video?.transcript
+          });
+
+          return {
+            success: true,
+            data: youtubeData,
+            message: 'YouTube data extracted successfully'
+          };
+        } else {
+          log('error', 'YouTube extraction failed in content script', response);
+          return {
+            success: false,
+            error: response?.error || 'Failed to extract YouTube data',
+            data: null
+          };
+        }
+      } catch (error) {
+        log('error', 'Failed to communicate with content script', error);
+        return {
+          success: false,
+          error: 'Content script not available or not responding',
+          data: null
+        };
+      }
+    } catch (error) {
+      log('error', 'YouTube extraction failed', error);
+      return {
+        success: false,
+        error: error.message,
+        data: null
+      };
+    }
+  }
+
+  /**
+   * Handle YouTube comments retrieval request
+   */
+  async handleGetYouTubeComments(payload, sender) {
+    log('info', 'YouTube comments retrieval requested', { sender: sender.tab?.url });
+
+    try {
+      // Check if we're on a YouTube video page
+      const isYouTubeVideo = sender.tab?.url && (
+        sender.tab.url.includes('youtube.com/watch') || 
+        sender.tab.url.includes('youtu.be/')
+      );
+
+      if (!isYouTubeVideo) {
+        return {
+          success: false,
+          error: 'Not on a YouTube video page',
+          data: null
+        };
+      }
+
+      const limit = payload.limit || 500;
+
+      // Execute comment extraction in the content script
+      // Note: YouTubeExtractor is already loaded via content script on YouTube pages
+      const extractionResults = await chrome.scripting.executeScript({
+        target: { tabId: sender.tab.id },
+        func: async (limit) => {
+          // Check if YouTubeExtractor is available
+          if (typeof YouTubeExtractor === 'undefined') {
+            throw new Error('YouTubeExtractor not available - content script may not be loaded');
+          }
+          const extractor = new YouTubeExtractor();
+          return await extractor.extractComments(limit);
+        },
+        args: [limit]
+      });
+
+      if (extractionResults && extractionResults[0] && extractionResults[0].result) {
+        const comments = extractionResults[0].result;
+        
+        log('info', 'YouTube comments extracted', {
+          commentCount: comments.length,
+          limit: limit
+        });
+
+        return {
+          success: true,
+          data: comments,
+          message: `Extracted ${comments.length} comments`
+        };
+      } else {
+        return {
+          success: false,
+          error: 'Failed to extract YouTube comments',
+          data: null
+        };
+      }
+    } catch (error) {
+      log('error', 'YouTube comments extraction failed', error);
+      return {
+        success: false,
+        error: error.message,
+        data: null
+      };
+    }
+  }
+
+  /**
+   * Handle comment navigation request
+   */
+  async handleNavigateToComment(payload, sender) {
+    log('info', 'Comment navigation requested', { 
+      username: payload.username,
+      sender: sender.tab?.url 
+    });
+
+    try {
+      // Check if we're on a YouTube video page
+      const isYouTubeVideo = sender.tab?.url && (
+        sender.tab.url.includes('youtube.com/watch') || 
+        sender.tab.url.includes('youtu.be/')
+      );
+
+      if (!isYouTubeVideo) {
+        return {
+          success: false,
+          error: 'Not on a YouTube video page',
+          data: null
+        };
+      }
+
+      // Execute comment navigation in the content script
+      // Note: CommentNavigator is already loaded via content script on YouTube pages
+      const navigationResults = await chrome.scripting.executeScript({
+        target: { tabId: sender.tab.id },
+        func: async (username) => {
+          // Check if CommentNavigator is available
+          if (typeof CommentNavigator === 'undefined') {
+            throw new Error('CommentNavigator not available - content script may not be loaded');
+          }
+          const navigator = new CommentNavigator();
+          navigator.navigateToComment(username);
+          return { success: true, username };
+        },
+        args: [payload.username]
+      });
+
+      if (navigationResults && navigationResults[0] && navigationResults[0].result) {
+        log('info', 'Comment navigation executed', {
+          username: payload.username
+        });
+
+        return {
+          success: true,
+          data: navigationResults[0].result,
+          message: `Navigated to comment by ${payload.username}`
+        };
+      } else {
+        return {
+          success: false,
+          error: 'Failed to navigate to comment',
+          data: null
+        };
+      }
+    } catch (error) {
+      log('error', 'Comment navigation failed', error);
+      return {
+        success: false,
+        error: error.message,
+        data: null
+      };
+    }
+  }
+
   // ==================== PAGE DATA EXTRACTION HANDLERS (MILESTONE 2) ====================
 
   /**
@@ -394,6 +611,7 @@ class TabSenseServiceWorker {
     try {
       // If message comes from popup, get the active tab
       let tabId = sender.tab?.id;
+      let tabUrl = sender.tab?.url;
       
       if (!tabId) {
         // Message from popup - get active tab
@@ -402,10 +620,37 @@ class TabSenseServiceWorker {
           throw new Error('No active tab found');
         }
         tabId = tabs[0].id;
-        log('info', 'Using active tab for extraction', { tabId, url: tabs[0].url });
+        tabUrl = tabs[0].url;
+        log('info', 'Using active tab for extraction', { tabId, url: tabUrl });
       }
 
-      // Try to send message to content script
+      // Check if this is a YouTube video page
+      const isYouTubeVideo = tabUrl && (
+        tabUrl.includes('youtube.com/watch') || 
+        tabUrl.includes('youtu.be/')
+      );
+
+      if (isYouTubeVideo) {
+        log('info', 'Detected YouTube video page, using YouTube-specific extraction');
+        
+        // Use YouTube-specific extraction
+        const youtubeResponse = await this.handleExtractYouTubeData(payload, sender);
+        if (youtubeResponse.success) {
+          return {
+            success: true,
+            data: {
+              ...youtubeResponse.data,
+              type: 'youtube',
+              url: tabUrl,
+              extractedAt: new Date().toISOString()
+            }
+          };
+        } else {
+          log('warn', 'YouTube extraction failed, falling back to standard extraction', youtubeResponse.error);
+        }
+      }
+
+      // Standard page extraction (fallback or non-YouTube pages)
       let response;
       try {
         response = await chrome.tabs.sendMessage(tabId, {
@@ -757,8 +1002,144 @@ class TabSenseServiceWorker {
    * Handle tab update (placeholder for future milestones)
    */
   async handleTabUpdate(tabId, changeInfo, tab) {
-    // Will be implemented in later milestones
+    // Only process when tab is complete and has a valid URL
+    if (changeInfo.status !== 'complete' || !tab.url || tab.url.startsWith('chrome://')) {
+      return;
+    }
+
     log('debug', 'Tab updated', { tabId, changeInfo, url: tab.url });
+
+    try {
+      // Check if this is a YouTube video page
+      const isYouTubeVideo = tab.url && (
+        tab.url.includes('youtube.com/watch') || 
+        tab.url.includes('youtu.be/')
+      );
+
+      if (isYouTubeVideo) {
+        log('info', 'Detected YouTube video page, processing...', { url: tab.url });
+        
+        // Process YouTube page
+        await this.processYouTubeTab(tabId, tab);
+      } else {
+        // Process regular page
+        await this.processRegularTab(tabId, tab);
+      }
+    } catch (error) {
+      log('error', 'Failed to process tab update', error);
+    }
+  }
+
+  /**
+   * Process YouTube tab
+   */
+  async processYouTubeTab(tabId, tab) {
+    try {
+      // Prevent duplicate processing
+      if (this.processingTabs.has(tabId)) {
+        log('debug', 'YouTube tab already being processed', { tabId, url: tab.url });
+        return;
+      }
+      
+      this.processingTabs.add(tabId);
+      log('info', 'Processing YouTube tab', { tabId, url: tab.url });
+      
+      // Wait a bit for the page to fully load
+      log('info', 'Waiting for YouTube page to load...', { url: tab.url });
+      await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second delay
+      
+      // Extract YouTube data
+      const youtubeResponse = await this.handleExtractYouTubeData({}, { tab });
+      
+      if (youtubeResponse.success) {
+        // Store in multi-tab collection
+        await this.storeTabData({
+          ...youtubeResponse.data,
+          type: 'youtube',
+          url: tab.url,
+          title: tab.title,
+          extractedAt: new Date().toISOString()
+        });
+        
+        log('info', 'YouTube tab processed and stored', { 
+          url: tab.url, 
+          title: youtubeResponse.data.video?.title?.substring(0, 50) 
+        });
+      }
+    } catch (error) {
+      log('error', 'Failed to process YouTube tab', error);
+    } finally {
+      // Remove from processing set
+      this.processingTabs.delete(tabId);
+    }
+  }
+
+  /**
+   * Process regular tab
+   */
+  async processRegularTab(tabId, tab) {
+    try {
+      // Send message to content script to extract page data
+      const response = await chrome.tabs.sendMessage(tabId, {
+        action: 'EXTRACT_PAGE_DATA'
+      });
+
+      if (response && response.success) {
+        // Store in multi-tab collection
+        await this.storeTabData({
+          ...response.data.pageData,
+          url: tab.url,
+          title: tab.title,
+          extractedAt: new Date().toISOString()
+        });
+        
+        log('info', 'Regular tab processed and stored', { 
+          url: tab.url, 
+          title: tab.title?.substring(0, 50) 
+        });
+      }
+    } catch (error) {
+      log('debug', 'Failed to process regular tab (content script may not be ready)', error);
+    }
+  }
+
+  /**
+   * Store tab data in multi-tab collection
+   */
+  async storeTabData(tabData) {
+    try {
+      const collection = await this.getMultiTabCollection();
+      
+      // Check if tab already exists (by URL)
+      const existingIndex = collection.tabs.findIndex(tab => tab.url === tabData.url);
+      
+      if (existingIndex >= 0) {
+        // Update existing tab
+        collection.tabs[existingIndex] = tabData;
+        log('debug', 'Updated existing tab data', { url: tabData.url });
+      } else {
+        // Add new tab
+        collection.tabs.push(tabData);
+        collection.tabCount = collection.tabs.length;
+        log('debug', 'Added new tab data', { url: tabData.url });
+      }
+      
+      // Update metadata
+      collection.lastUpdated = Date.now();
+      collection.totalContentLength = collection.tabs.reduce((total, tab) => 
+        total + (tab.content?.length || 0), 0
+      );
+      
+      // Store updated collection
+      await chrome.storage.local.set({ multi_tab_collection: collection });
+      
+      log('info', 'Tab data stored successfully', { 
+        tabCount: collection.tabCount,
+        totalLength: collection.totalContentLength 
+      });
+    } catch (error) {
+      log('error', 'Failed to store tab data', error);
+    }
   }
 
   /**

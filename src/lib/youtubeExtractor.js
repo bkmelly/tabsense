@@ -3,8 +3,15 @@
  * Specialized extractor for YouTube videos, comments, and metadata
  */
 
+// Add a global flag to indicate the script loaded
+console.log('[YouTubeExtractor] Script file loaded - checking if constructor will be called');
+
 class YouTubeExtractor {
   constructor() {
+    console.log('[YouTubeExtractor] Constructor called - content script loaded successfully');
+    console.log('[YouTubeExtractor] Window location:', window.location.href);
+    console.log('[YouTubeExtractor] Document ready state:', document.readyState);
+    
     this.commentSelectors = {
       commentText: '#content-text',
       author: '#author-text',
@@ -31,13 +38,18 @@ class YouTubeExtractor {
   async extractYouTubeData() {
     try {
       console.log('[YouTubeExtractor] Starting YouTube data extraction...');
+      console.log('[YouTubeExtractor] Current URL:', window.location.href);
+      console.log('[YouTubeExtractor] Page title:', document.title);
       
       const [videoData, comments] = await Promise.all([
         this.extractVideoData(),
         this.extractComments()
       ]);
       
-      return {
+      console.log('[YouTubeExtractor] Video data extracted:', videoData);
+      console.log('[YouTubeExtractor] Comments extracted:', comments.length);
+      
+      const result = {
         type: 'youtube',
         video: videoData,
         comments: comments,
@@ -47,6 +59,9 @@ class YouTubeExtractor {
           hasTranscript: !!videoData.transcript
         }
       };
+      
+      console.log('[YouTubeExtractor] Final result:', result);
+      return result;
     } catch (error) {
       console.error('[YouTubeExtractor] Extraction failed:', error);
       throw error;
@@ -57,6 +72,10 @@ class YouTubeExtractor {
    * Extract video metadata
    */
   async extractVideoData() {
+    console.log('[YouTubeExtractor] Extracting video data...');
+    console.log('[YouTubeExtractor] Looking for title selector:', this.videoSelectors.title);
+    console.log('[YouTubeExtractor] Title element found:', document.querySelector(this.videoSelectors.title));
+    
     const videoData = {
       title: this.getTextContent(this.videoSelectors.title),
       description: this.getTextContent(this.videoSelectors.description),
@@ -257,7 +276,10 @@ class YouTubeExtractor {
   }
 }
 
+// Make YouTubeExtractor available globally for content script execution
+window.YouTubeExtractor = YouTubeExtractor;
+console.log('[YouTubeExtractor] Made available globally as window.YouTubeExtractor');
+
 // Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = YouTubeExtractor;
-}
+export { YouTubeExtractor };
+export default YouTubeExtractor;

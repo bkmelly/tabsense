@@ -17,6 +17,63 @@ export class ContentScorer {
   }
 
   /**
+   * Process and enhance metadata from extracted page data
+   * @param {Object} pageData - Raw page data from content script
+   * @returns {Object} Enhanced metadata with quality scoring
+   */
+  async processMetadata(pageData) {
+    console.log('[ContentScorer] Processing metadata for:', pageData.url);
+    
+    const { url, title, metadata, content, structure } = pageData;
+    
+    // Score the content quality using existing scoring logic
+    const qualityResult = this.score({
+      content: content || { sections: [] },
+      metadata: metadata || {},
+      stats: {
+        wordCount: this.getWordCount(content),
+        contentDensity: this.calculateContentDensity(content),
+        hasHeadings: this.hasHeadings(content)
+      }
+    });
+    
+    // Enhanced metadata with quality scoring
+    const enhancedMetadata = {
+      // Core information
+      url: url,
+      title: title || 'Untitled',
+      domain: this.extractDomain(url),
+      
+      // Extracted metadata
+      description: metadata?.description || '',
+      author: metadata?.author || '',
+      publishedTime: metadata?.publishedTime || '',
+      modifiedTime: metadata?.modifiedTime || '',
+      language: metadata?.language || 'en',
+      
+      // Content analysis
+      wordCount: qualityResult.stats.wordCount,
+      readingTime: this.calculateReadingTime(content),
+      
+      // Quality scoring (using existing logic)
+      qualityScore: qualityResult.scores.overall,
+      qualityPassed: qualityResult.passed,
+      qualityReason: qualityResult.reason,
+      
+      // Enhanced fields
+      tags: this.extractTags(metadata),
+      topics: this.extractTopics(content, title),
+      
+      // Timestamps
+      extractedAt: new Date().toISOString(),
+      lastUpdated: new Date().toISOString()
+    };
+    
+    console.log('[ContentScorer] Enhanced metadata with quality scoring:', enhancedMetadata);
+    return enhancedMetadata;
+  }
+
+  /**
    * Score content quality
    * @param {Object} extractionResult - Result from ContentExtractor
    * @returns {Object} Scoring result with pass/fail and detailed scores
@@ -130,9 +187,21 @@ export class ContentScorer {
    * Score link/text ratio
    */
   scoreLinkRatio(content) {
-    const allText = content.sections
-      .flatMap(s => s.content.map(c => c.text))
-      .join(' ');
+    let allText = '';
+    
+    // Handle both structured content (from ContentExtractor) and raw text (from service worker)
+    if (content && typeof content === 'string') {
+      // Raw text content from service worker
+      allText = content;
+    } else if (content && content.sections && Array.isArray(content.sections)) {
+      // Structured content from ContentExtractor
+      allText = content.sections
+        .flatMap(s => s.content.map(c => c.text))
+        .join(' ');
+    } else {
+      // Fallback for empty or invalid content
+      allText = '';
+    }
     
     // Count links (approximate)
     const linkMatches = allText.match(/https?:\/\/[^\s]+/g) || [];
@@ -209,6 +278,174 @@ export class ContentScorer {
     const uniqueRatio = uniqueParagraphs.size / allParagraphs.length;
     
     return uniqueRatio >= threshold;
+  }
+
+  /**
+   * Extract domain from URL
+   */
+  extractDomain(url) {
+    try {
+      const urlObj = new URL(url);
+      return urlObj.hostname;
+    } catch (error) {
+      console.warn('[ContentScorer] Invalid URL for domain extraction:', url, error);
+      return 'unknown';
+    }
+  }
+
+  /**
+   * Get word count from content
+   */
+  getWordCount(content) {
+    let allText = '';
+    
+    // Handle both structured content (from ContentExtractor) and raw text (from service worker)
+    if (content && typeof content === 'string') {
+      // Raw text content from service worker
+      allText = content;
+    } else if (content && content.sections && Array.isArray(content.sections)) {
+      // Structured content from ContentExtractor
+      allText = content.sections
+        .flatMap(s => s.content.map(c => c.text))
+        .join(' ');
+    } else {
+      // Fallback for empty or invalid content
+      return 0;
+    }
+    
+    return allText.split(/\s+/).filter(word => word.length > 0).length;
+  }
+
+  /**
+   * Calculate content density
+   */
+  calculateContentDensity(content) {
+    let allText = '';
+    
+    // Handle both structured content (from ContentExtractor) and raw text (from service worker)
+    if (content && typeof content === 'string') {
+      // Raw text content from service worker
+      allText = content;
+    } else if (content && content.sections && Array.isArray(content.sections)) {
+      // Structured content from ContentExtractor
+      allText = content.sections
+        .flatMap(s => s.content.map(c => c.text))
+        .join(' ');
+    } else {
+      // Fallback for empty or invalid content
+      return 0;
+    }
+    
+    const textLength = allText.length;
+    const htmlLength = JSON.stringify(content).length;
+    
+    return htmlLength > 0 ? textLength / htmlLength : 0;
+  }
+
+  /**
+   * Check if content has headings
+   */
+  hasHeadings(content) {
+    // For raw text content from service worker, check for heading patterns
+    if (content && typeof content === 'string') {
+      // Look for common heading patterns in raw text
+      const headingPatterns = [
+        /^#{1,6}\s+/m,  // Markdown headers
+        /<h[1-6][^>]*>/i,  // HTML headers
+        /^[A-Z][A-Z\s]{10,}$/m  // ALL CAPS lines (common in articles)
+      ];
+      
+      return headingPatterns.some(pattern => pattern.test(content));
+    } else if (content && content.sections && Array.isArray(content.sections)) {
+      // Structured content from ContentExtractor
+      return content.sections.some(section => 
+        section.content.some(item => 
+          item.type === 'h1' || item.type === 'h2' || item.type === 'h3'
+        )
+      );
+    }
+    
+    return false;
+  }
+
+  /**
+   * Calculate estimated reading time
+   */
+  calculateReadingTime(content) {
+    const wordCount = this.getWordCount(content);
+    const wordsPerMinute = 200; // Average reading speed
+    const minutes = Math.ceil(wordCount / wordsPerMinute);
+    return `${minutes} min read`;
+  }
+
+  /**
+   * Extract tags from metadata
+   */
+  extractTags(metadata) {
+    if (!metadata) return [];
+    
+    const tags = [];
+    
+    // Add keywords as tags
+    if (metadata.keywords) {
+      tags.push(...metadata.keywords.split(',').map(k => k.trim()).filter(k => k));
+    }
+    
+    // Add article tags
+    if (metadata.tags) {
+      tags.push(...metadata.tags.split(',').map(t => t.trim()).filter(t => t));
+    }
+    
+    // Add category as tag
+    if (metadata.category) {
+      tags.push(metadata.category);
+    }
+    
+    // Remove duplicates and return
+    return [...new Set(tags)];
+  }
+
+  /**
+   * Extract topics from content and title
+   */
+  extractTopics(content, title) {
+    const topics = [];
+    
+    // Extract from title (simple keyword extraction)
+    if (title) {
+      const titleWords = title.toLowerCase()
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .filter(word => word.length > 3)
+        .slice(0, 3); // Top 3 words from title
+      topics.push(...titleWords);
+    }
+    
+    // Extract from content (first few sentences)
+    let allText = '';
+    if (content && typeof content === 'string') {
+      // Raw text content from service worker
+      allText = content;
+    } else if (content && content.sections && Array.isArray(content.sections)) {
+      // Structured content from ContentExtractor
+      allText = content.sections
+        .flatMap(s => s.content.map(c => c.text))
+        .join(' ');
+    }
+    
+    if (allText) {
+      const sentences = allText.split(/[.!?]+/).slice(0, 2);
+      const contentWords = sentences.join(' ')
+        .toLowerCase()
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .filter(word => word.length > 4)
+        .slice(0, 5); // Top 5 words from content
+      topics.push(...contentWords);
+    }
+    
+    // Remove duplicates and return
+    return [...new Set(topics)].slice(0, 8); // Max 8 topics
   }
 }
 

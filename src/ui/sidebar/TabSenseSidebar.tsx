@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, Download, Send, X, Loader2, CheckCircle2, ExternalLink, ChevronDown, ChevronLeft, ChevronRight,
   Globe, BookOpen, Video, MessageSquare, Newspaper, Zap, Flame, Brain, Lightbulb, 
@@ -13,16 +13,86 @@ import { Badge } from '../components/ui/badge';
 import Header from '../components/Header';
 import ArchiveSection from '../components/ArchiveSection';
 import QASection from '../components/QASection';
+import EmptyState from '../components/EmptyState';
+import { ToastContainer, useToast } from '../components/Toast';
+
+// Import content processing utilities
+import { ContentCleaner } from '../../lib/contentCleaner';
+import { ContentScorer } from '../../lib/contentScorer';
+import { PageClassifier } from '../../lib/pageClassifier';
+import { URLFilter } from '../../lib/urlFilter';
+
+// Service Worker Communication Interface
+interface ServiceWorkerMessage {
+  action: string;
+  payload?: any;
+}
+
+interface ServiceWorkerResponse {
+  success: boolean;
+  data?: any;
+  error?: string;
+}
+
+// Service Worker Communication Functions
+const sendMessageToServiceWorker = async (message: ServiceWorkerMessage): Promise<ServiceWorkerResponse> => {
+  try {
+    const response = await chrome.runtime.sendMessage(message);
+    return response || { success: false, error: 'No response from service worker' };
+  } catch (error) {
+    console.error('Failed to send message to service worker:', error);
+    return { success: false, error: error.message };
+  }
+};
 
 interface TabSummary {
   id: string;
   title: string;
   url: string;
-  favicon: React.ComponentType<{ className?: string }>;
+  favicon: React.ComponentType<{ className?: string }> | string; // Support both icon components and favicon URLs
   summary: string;
   keyPoints: string[];
   analyzing?: boolean;
-  category: "documentation" | "youtube" | "forum" | "news";
+  category: "documentation" | "youtube" | "forum" | "news" | "blog" | "ecommerce" | "reference" | "academic" | "generic";
+  
+  // Enhanced metadata
+  author?: string;
+  publishedTime?: string;
+  description?: string;
+  tags?: string[];
+  topics?: string[];
+  wordCount?: number;
+  readingTime?: string;
+  qualityScore?: number;
+  
+  // YouTube-specific data
+  youtubeData?: {
+    video?: {
+      title?: string;
+      description?: string;
+      channel?: string;
+      views?: string;
+      likes?: string;
+      url?: string;
+      videoId?: string;
+      transcript?: Array<{ time?: string; text?: string }>;
+    };
+    comments?: Array<{
+      text?: string;
+      author?: string;
+      likes?: number;
+      timestamp?: string;
+      replies?: number;
+      url?: string;
+    }>;
+    metadata?: {
+      extractedAt?: string;
+      commentCount?: number;
+      hasTranscript?: boolean;
+    };
+  };
+  
+  // Legacy fields (for backward compatibility)
   sentiment?: "positive" | "neutral" | "negative";
   bias?: "left" | "center" | "right";
   engagementScore?: number;
@@ -105,7 +175,22 @@ const aiResponses: Record<string, string> = {
 };
 
 const TabSenseSidebar: React.FC = () => {
+  // ==================== STATE MANAGEMENT ====================
+  
+  // Core Tab Data State
   const [tabs, setTabs] = useState<TabSummary[]>(initialTabs);
+  const [isLoadingTabs, setIsLoadingTabs] = useState(false);
+  const [serviceWorkerStatus, setServiceWorkerStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+  const [lastLoadTime, setLastLoadTime] = useState<number>(0);
+  
+  // Toast notifications
+  const { toasts, error: showError, success: showSuccess, removeToast } = useToast();
+  
+  // Content Processing
+  const contentCleaner = new ContentCleaner();
+  const contentScorer = new ContentScorer();
+  const pageClassifier = new PageClassifier();
+  const urlFilter = new URLFilter();
   
   // Main Q&A State (All Tabs)
   const [mainQuestion, setMainQuestion] = useState("");
@@ -124,6 +209,281 @@ const TabSenseSidebar: React.FC = () => {
   const [isSummaryQAExpanded, setIsSummaryQAExpanded] = useState(false);
   const [selectedSummaryForQA, setSelectedSummaryForQA] = useState<TabSummary | null>(null);
   const [summaryQuestion, setSummaryQuestion] = useState("");
+
+  // ==================== CONTENT PROCESSING UTILITIES ====================
+
+  /**
+   * Validate URL and clean it
+   */
+  const validateAndCleanUrl = (url: string): string => {
+    try {
+      // Basic URL validation
+      if (!url || typeof url !== 'string') return '';
+      
+      // Add protocol if missing
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
+      
+      const urlObj = new URL(url);
+      
+      // Remove tracking parameters
+      const trackingParams = [
+        'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+        'fbclid', 'gclid', 'msclkid', '_ga', '_gid', 'mc_cid', 'mc_eid'
+      ];
+      
+      trackingParams.forEach(param => {
+        urlObj.searchParams.delete(param);
+      });
+      
+      return urlObj.toString();
+    } catch (error) {
+      console.warn('[TabSense] Invalid URL:', url, error);
+      return url; // Return original if invalid
+    }
+  };
+
+  /**
+   * Clean and normalize content
+   */
+  const cleanContent = (content: string): string => {
+    if (!content || typeof content !== 'string') return '';
+    
+    return contentCleaner.normalizeWhitespace(
+      contentCleaner.normalizeCharacters(content)
+    );
+  };
+
+  /**
+   * Create a clean summary from raw content
+   */
+  const createCleanSummary = (content: string, title: string): string => {
+    if (!content || content.length < 50) {
+      return `✅ Content extracted from ${title || 'this page'}`;
+    }
+    
+    // Clean the content first
+    const cleanedContent = cleanContent(content);
+    
+    // Extract first meaningful sentence
+    const sentences = cleanedContent.split(/[.!?]+/).filter(s => s.trim().length > 20);
+    if (sentences.length > 0) {
+      const firstSentence = sentences[0].trim();
+      return firstSentence.length > 150 
+        ? firstSentence.substring(0, 150) + '...'
+        : firstSentence;
+    }
+    
+    return `✅ Content extracted from ${title || 'this page'}`;
+  };
+
+
+  // ==================== SERVICE WORKER INTEGRATION ====================
+  
+  /**
+   * Initialize service worker connection and load real tab data
+   */
+  useEffect(() => {
+    const initializeServiceWorker = async () => {
+      try {
+        // Test service worker connectivity
+        const pingResponse = await sendMessageToServiceWorker({ action: 'PING' });
+        
+        if (pingResponse.success) {
+          setServiceWorkerStatus('connected');
+          console.log('[TabSense] Service worker connected:', pingResponse.data);
+          
+          // Load real tab data from service worker
+          await loadRealTabData();
+        } else {
+          setServiceWorkerStatus('error');
+          console.error('[TabSense] Service worker connection failed:', pingResponse.error);
+          showError(
+            'Service worker connection failed',
+            pingResponse.error || 'Unable to connect to background service',
+            8000
+          );
+        }
+      } catch (error) {
+        setServiceWorkerStatus('error');
+        console.error('[TabSense] Failed to initialize service worker:', error);
+        showError(
+          'Service worker initialization failed',
+          `Failed to initialize: ${error.message}`,
+          8000
+        );
+      }
+    };
+
+    initializeServiceWorker();
+  }, []);
+
+  /**
+   * Load real tab data from service worker using GET_MULTI_TAB_COLLECTION
+   */
+  const loadRealTabData = async () => {
+    // Debounce: prevent multiple rapid calls
+    const now = Date.now();
+    if (now - lastLoadTime < 2000) { // 2 second debounce
+      console.log('[TabSense] Debouncing loadRealTabData call');
+      return;
+    }
+    setLastLoadTime(now);
+
+    setIsLoadingTabs(true);
+    console.log('[TabSense] Loading real tab data...');
+    
+    try {
+      const response = await sendMessageToServiceWorker({ 
+        action: 'GET_MULTI_TAB_COLLECTION' 
+      });
+      
+      console.log('[TabSense] GET_MULTI_TAB_COLLECTION response:', response);
+      
+      // Try different data access patterns
+      const tabsData = response.data?.data?.tabs || response.data?.tabs || [];
+      console.log('[TabSense] Extracted tabs data:', tabsData);
+      
+      if (response.success && tabsData && tabsData.length > 0) {
+        console.log('[TabSense] Found tabs in response:', tabsData.length);
+        
+        // Filter out non-processable URLs using URLFilter
+        const processableTabs = urlFilter.filterTabs(tabsData);
+        
+        // Get filtering statistics
+        const filterStats = urlFilter.getFilteringStats(tabsData, processableTabs);
+        console.log('[TabSense] URL filtering stats:', filterStats);
+        
+        if (processableTabs.length === 0) {
+          showError(
+            'No processable content found',
+            'All tabs were filtered out. Try opening some content pages.',
+            8000
+          );
+          return;
+        }
+        
+        const realTabs = await Promise.all(processableTabs.map(async (tab: any, index: number) => {
+          try {
+            // Clean and validate URL
+            const cleanUrl = validateAndCleanUrl(tab.url || '');
+            
+            // Clean and normalize title
+            const cleanTitle = cleanContent(tab.title || 'Untitled');
+            
+            // Process comprehensive metadata using enhanced ContentScorer
+            const enhancedMetadata = await contentScorer.processMetadata({
+              url: cleanUrl,
+              title: cleanTitle,
+              content: tab.content || '',
+              metadata: tab.metadata || {},
+              structure: tab.structure || {}
+            });
+            
+            // Check if this is YouTube data
+            const isYouTubeData = tab.type === 'youtube' || tab.video || tab.comments;
+            
+            // Create clean summary from content
+            const cleanSummary = createCleanSummary(tab.content || '', cleanTitle);
+            
+            // Create YouTube-specific key points if available
+            let keyPoints: string[] = [];
+            if (isYouTubeData && tab.video) {
+              keyPoints = [
+                `📺 ${tab.video.channel || 'Unknown Channel'}`,
+                `👀 ${tab.video.views || 'Unknown views'}`,
+                `👍 ${tab.video.likes || 'Unknown likes'}`,
+                `💬 ${tab.comments?.length || 0} comments`,
+                tab.video.transcript ? `📝 Transcript available` : `📝 No transcript`
+              ];
+            } else {
+              keyPoints = [
+                `📊 Quality: ${enhancedMetadata.qualityScore}/100`,
+                `📖 ${enhancedMetadata.readingTime}`,
+                `🏷️ ${enhancedMetadata.category || 'General'}`,
+                `👤 ${enhancedMetadata.author || 'Unknown author'}`
+              ];
+            }
+            
+            return {
+              id: `real-${index}`,
+              title: cleanTitle,
+              url: cleanUrl,
+              favicon: urlFilter.getFaviconUrl(cleanUrl), // Dynamic favicon URL
+              summary: cleanSummary,
+              keyPoints: keyPoints,
+              analyzing: false,
+              category: (enhancedMetadata.category || 'generic') as "documentation" | "youtube" | "forum" | "news" | "blog" | "ecommerce" | "reference" | "academic" | "generic",
+              // Enhanced metadata
+              author: enhancedMetadata.author,
+              publishedTime: enhancedMetadata.publishedTime,
+              description: enhancedMetadata.description,
+              tags: enhancedMetadata.tags,
+              topics: enhancedMetadata.topics,
+              wordCount: enhancedMetadata.wordCount,
+              readingTime: enhancedMetadata.readingTime,
+              qualityScore: enhancedMetadata.qualityScore,
+              // YouTube-specific data
+              ...(isYouTubeData && {
+                youtubeData: {
+                  video: tab.video,
+                  comments: tab.comments,
+                  metadata: tab.metadata
+                }
+              })
+            };
+          } catch (error) {
+            console.error('[TabSense] Error processing tab:', tab.url, error);
+            showError(
+              'Failed to process tab',
+              `Error processing ${tab.title || tab.url}: ${error.message}`,
+              6000
+            );
+            return null;
+          }
+        }));
+        
+        // Filter out null results from failed processing
+        const validTabs = realTabs.filter(tab => tab !== null);
+        
+        if (validTabs.length === 0) {
+          showError(
+            'No tabs could be processed',
+            'All tabs failed processing. Check console for details.',
+            8000
+          );
+          return;
+        }
+        
+        console.log('[TabSense] Transformed tabs with content cleaning and URL filtering:', validTabs);
+        setTabs(validTabs);
+        console.log('[TabSense] Loaded real tab data:', validTabs.length, 'tabs');
+        
+        showSuccess(
+          'Tabs loaded successfully',
+          `Processed ${validTabs.length} tabs with ${filterStats.filteredCount} filtered out`,
+          4000
+        );
+      } else {
+        console.warn('[TabSense] No real tab data available, using initial tabs');
+        showError(
+          'No tab data available',
+          'No tabs were found in the service worker response.',
+          6000
+        );
+      }
+    } catch (error) {
+      console.error('[TabSense] Failed to load real tab data:', error);
+      showError(
+        'Failed to load tabs',
+        `Service worker error: ${error.message}`,
+        8000
+      );
+    } finally {
+      setIsLoadingTabs(false);
+    }
+  };
   const [summaryMessages, setSummaryMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
   const [summaryShowSuggestions, setSummaryShowSuggestions] = useState(true);
   const [summaryIsMenuOpen, setSummaryIsMenuOpen] = useState(false);
@@ -341,6 +701,8 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
 
   return (
     <div className="w-full h-screen bg-gradient-to-br from-background via-background to-muted/20 flex flex-col overflow-hidden shadow-2xl">
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      
       {/* Header */}
       <Header 
         title="TabSense AI"
@@ -350,6 +712,32 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
         onSettingsClick={() => console.log('Settings clicked')}
         onHistoryClick={() => setIsArchiveExpanded(true)}
       />
+      
+      {/* Service Worker Status Indicator */}
+      <div className="px-4 py-2 bg-muted/30 border-b border-border/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${
+              serviceWorkerStatus === 'connected' ? 'bg-green-500' : 
+              serviceWorkerStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'
+            }`} />
+            <span className="text-xs text-muted-foreground">
+              Service Worker: {serviceWorkerStatus}
+            </span>
+            {isLoadingTabs && (
+              <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+            )}
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={loadRealTabData}
+            className="text-xs h-6 px-2"
+          >
+            Refresh Tabs
+          </Button>
+        </div>
+      </div>
       
       <div className="flex-1 flex flex-col bg-background overflow-hidden">
         {/* Archive Section - Covers everything */}
@@ -397,23 +785,23 @@ This conversation was created from a tab summary. The original summary content w
           />
         ) : isSummaryQAExpanded ? (
           /* Summary-Specific Q&A Section - Covers everything */
-          <QASection
+            <QASection
             question={summaryQuestion}
             setQuestion={setSummaryQuestion}
             messages={summaryMessages}
-            isTyping={isTyping}
+              isTyping={isTyping}
             showSuggestions={summaryShowSuggestions}
             setShowSuggestions={setSummaryShowSuggestions}
             isMenuOpen={summaryIsMenuOpen}
             setIsMenuOpen={setSummaryIsMenuOpen}
             onAskQuestion={handleSummaryAskQuestion}
-            onShareClick={() => console.log('Share clicked')}
-            onMenuAction={(action) => {
-              console.log('Menu action:', action);
+              onShareClick={() => console.log('Share clicked')}
+              onMenuAction={(action) => {
+                console.log('Menu action:', action);
               setSummaryIsMenuOpen(false);
-            }}
+              }}
             onClose={closeSummaryQA}
-          />
+            />
         ) : (
           <>
 
@@ -467,12 +855,21 @@ This conversation was created from a tab summary. The original summary content w
             </div>
 
             <ScrollArea className="flex-1">
-              <div className="space-y-3 py-2 pb-4 px-3">
+              <div className="py-2 pb-4 px-3">
+                {isLoadingTabs ? (
+                  <EmptyState type="loading" />
+                ) : filteredTabs.length === 0 ? (
+                  <EmptyState 
+                    type="no-tabs" 
+                    onRetry={loadRealTabData}
+                  />
+                ) : (
+                  <div className="space-y-3">
                 {filteredTabs.map((tab) => (
                   <Card 
                     key={tab.id} 
                     onClick={() => setExpandedTabId(expandedTabId === tab.id ? null : tab.id)}
-                    className={`group p-3 transition-all duration-300 cursor-pointer hover:shadow-lg hover:scale-[1.01] overflow-hidden ${
+                        className={`group p-3 transition-all duration-300 cursor-pointer hover:shadow-lg hover:scale-[1.01] overflow-hidden w-full max-w-full ${
                       tab.analyzing 
                         ? 'opacity-60 bg-primary/5' 
                         : 'bg-gradient-to-br from-card to-card/50'
@@ -480,11 +877,27 @@ This conversation was created from a tab summary. The original summary content w
                   >
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 group-hover:scale-110 transition-transform">
+                            {typeof tab.favicon === 'string' ? (
+                              <img 
+                                src={tab.favicon} 
+                                alt={`${tab.title} favicon`}
+                                className="w-6 h-6 rounded-sm"
+                                onError={(e) => {
+                                  // Fallback to Globe icon if favicon fails to load
+                                  e.currentTarget.style.display = 'none';
+                                  const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                  if (fallback) fallback.style.display = 'block';
+                                }}
+                              />
+                            ) : (
                         <tab.favicon className="w-6 h-6 text-primary" />
+                            )}
+                            {/* Fallback Globe icon */}
+                            <Globe className="w-6 h-6 text-primary hidden" />
                       </div>
                       <div className="flex-1 min-w-0 overflow-hidden">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-sm font-medium flex-1 group-hover:text-primary transition-colors overflow-hidden text-ellipsis whitespace-nowrap">
+                              <h3 className="text-sm font-medium flex-1 group-hover:text-primary transition-colors break-words">
                             {tab.title}
                           </h3>
                           {!tab.analyzing && (
@@ -495,15 +908,16 @@ This conversation was created from a tab summary. The original summary content w
                           )}
                         </div>
                         
-                        <div className="flex items-center gap-2 mb-2 overflow-hidden">
+                            <div className="flex items-center gap-2 mb-2">
                           <a 
                             href={`https://${tab.url}`} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 flex-1 min-w-0 overflow-hidden"
+                                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
                             onClick={(e) => e.stopPropagation()}
+                                title={tab.url}
                           >
-                            <span className="overflow-hidden text-ellipsis whitespace-nowrap">{tab.url}</span>
+                                <span className="truncate max-w-[120px]">{tab.url}</span>
                             <ExternalLink className="w-3 h-3 flex-shrink-0" />
                           </a>
                         </div>
@@ -573,6 +987,43 @@ This conversation was created from a tab summary. The original summary content w
                               </div>
                             </div>
 
+                                {/* YouTube-specific information */}
+                                {tab.youtubeData && (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <Video className="w-4 h-4 text-primary" />
+                                      <h4 className="text-xs font-bold text-foreground">Video Details</h4>
+                                    </div>
+                                    <div className="pl-6 space-y-2">
+                                      {tab.youtubeData.video?.channel && (
+                                        <div className="text-xs text-muted-foreground">
+                                          <span className="font-medium">Channel:</span> {tab.youtubeData.video.channel}
+                                        </div>
+                                      )}
+                                      {tab.youtubeData.video?.views && (
+                                        <div className="text-xs text-muted-foreground">
+                                          <span className="font-medium">Views:</span> {tab.youtubeData.video.views}
+                                        </div>
+                                      )}
+                                      {tab.youtubeData.video?.likes && (
+                                        <div className="text-xs text-muted-foreground">
+                                          <span className="font-medium">Likes:</span> {tab.youtubeData.video.likes}
+                                        </div>
+                                      )}
+                                      {tab.youtubeData.comments && tab.youtubeData.comments.length > 0 && (
+                                        <div className="text-xs text-muted-foreground">
+                                          <span className="font-medium">Comments:</span> {tab.youtubeData.comments.length} extracted
+                                        </div>
+                                      )}
+                                      {tab.youtubeData.video?.transcript && (
+                                        <div className="text-xs text-muted-foreground">
+                                          <span className="font-medium">Transcript:</span> Available ({tab.youtubeData.video.transcript.length} segments)
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
                             {/* More Button */}
                             <div className="pt-2 border-t border-border/20">
                               <button
@@ -599,9 +1050,6 @@ This conversation was created from a tab summary. The original summary content w
                     </div>
                   </Card>
                 ))}
-                {filteredTabs.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground text-sm">
-                    No {categories.find(c => c.id === selectedCategory)?.label.toLowerCase()} yet
                   </div>
                 )}
               </div>

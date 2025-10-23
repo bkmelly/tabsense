@@ -32,7 +32,6 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "exclude_matches": ["*://www.youtube.com/*", "*://youtube.com/*"],
       "js": ["content.js"],
       "run_at": "document_end",
       "all_frames": false,
@@ -40,9 +39,10 @@
     },
     {
       "matches": ["*://www.youtube.com/*", "*://youtube.com/*"],
-      "js": ["lib/commentNavigator.js"],
+      "js": ["lib/commentNavigator.js", "lib/youtubeExtractor.js"],
       "run_at": "document_end",
-      "all_frames": false
+      "all_frames": false,
+      "type": "module"
     }
   ],
   
