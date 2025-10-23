@@ -100,7 +100,7 @@ class PageDataExtractor {
     try {
       // Skip Readability since we removed module loading
       // Go directly to enhanced content extraction
-      return this.extractEnhancedContent();
+          return this.extractEnhancedContent();
     } catch (error) {
       log('error', 'Content extraction failed, using basic fallback', error);
       return this.extractBasicContent();

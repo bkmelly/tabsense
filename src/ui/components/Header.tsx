@@ -56,7 +56,7 @@ const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onRefreshClick}
               className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-              title="Refresh Tabs"
+              title="Refresh & Process All Tabs"
             >
               <RefreshCw className="w-4 h-4 text-white/70" />
             </button>

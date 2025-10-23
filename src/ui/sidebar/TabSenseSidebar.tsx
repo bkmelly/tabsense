@@ -127,11 +127,15 @@ const aiResponses: Record<string, string> = {
 const TabSenseSidebar: React.FC = () => {
   // ==================== STATE MANAGEMENT ====================
   
-  // Core Tab Data State
-  const [tabs, setTabs] = useState<TabSummary[]>([]);
+  // Processing Status State
+  const [processingStatus, setProcessingStatus] = useState<Record<string, string>>({});
+  const [isProcessing, setIsProcessing] = useState(false);
   const [isLoadingTabs, setIsLoadingTabs] = useState(false);
   const [serviceWorkerStatus, setServiceWorkerStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [lastLoadTime, setLastLoadTime] = useState<number>(0);
+  
+  // Core Tab Data State
+  const [tabs, setTabs] = useState<TabSummary[]>([]);
   
   // Settings State
   const [showSettingsPage, setShowSettingsPage] = useState(false);
@@ -271,8 +275,80 @@ const TabSenseSidebar: React.FC = () => {
   }, []);
 
   /**
-   * Load real tab data from service worker using GET_MULTI_TAB_COLLECTION
+   * Enhanced refresh function that processes all tabs automatically
    */
+  const refreshAndProcessTabs = async () => {
+    try {
+      console.log('[TabSense] Refreshing and processing all tabs...');
+      setIsProcessing(true);
+      
+      // Set processing status for all categories
+      setProcessingStatus({
+        all: 'Analyzing tabs...',
+        documentation: 'Extracting content...',
+        youtube: 'Processing videos...',
+        forum: 'Analyzing discussions...',
+        news: 'Summarizing articles...',
+        blog: 'Processing posts...',
+        ecommerce: 'Analyzing products...',
+        reference: 'Indexing content...',
+        academic: 'Processing papers...',
+        generic: 'Analyzing content...'
+      });
+      
+      // First, refresh the tab data
+      await loadRealTabData();
+      
+      // Then trigger automatic processing of unprocessed tabs
+      const response = await sendMessageToServiceWorker({
+        action: 'PROCESS_ALL_TABS'
+      });
+      
+      if (response.success) {
+        console.log('[TabSense] Automatic processing triggered:', response.data);
+        
+        // Update processing status
+        setProcessingStatus({
+          all: 'Processing in background...',
+          documentation: 'Extracting & summarizing...',
+          youtube: 'Analyzing videos & comments...',
+          forum: 'Processing discussions...',
+          news: 'Summarizing articles...',
+          blog: 'Analyzing posts...',
+          ecommerce: 'Processing products...',
+          reference: 'Indexing content...',
+          academic: 'Processing papers...',
+          generic: 'Analyzing content...'
+        });
+        
+        // Show processing status
+        showSuccess(
+          "Processing Started",
+          `Processing ${response.data.tabCount || 0} tabs in the background`,
+          4000
+        );
+        
+        // Refresh again after a delay to show processed results
+        setTimeout(async () => {
+          await loadRealTabData();
+          setProcessingStatus({});
+          setIsProcessing(false);
+        }, 5000);
+      } else {
+        setProcessingStatus({});
+        setIsProcessing(false);
+      }
+    } catch (error) {
+      console.error('[TabSense] Error during refresh and process:', error);
+      setProcessingStatus({});
+      setIsProcessing(false);
+      showError(
+        "Processing Error",
+        "An error occurred while processing tabs",
+        6000
+      );
+    }
+  };
   const loadRealTabData = async () => {
     // Debounce: prevent multiple rapid calls
     const now = Date.now();
@@ -666,7 +742,7 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
           console.log('[TabSense] After setShowSettingsPage(true)');
         }}
         onHistoryClick={() => setIsArchiveExpanded(true)}
-        onRefreshClick={loadRealTabData}
+        onRefreshClick={refreshAndProcessTabs}
         serviceWorkerStatus={serviceWorkerStatus}
       />
       
@@ -757,9 +833,18 @@ This conversation was created from a tab summary. The original summary content w
                 >
                   <cat.icon className="w-3 h-3" />
                   <span>{cat.label}</span>
-                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
-                    {cat.id === "all" ? tabs.length : tabs.filter(t => t.category === cat.id).length}
-                  </Badge>
+                  
+                  {/* Dynamic Status Indicator */}
+                  {processingStatus[cat.id] ? (
+                    <div className="flex items-center gap-1 ml-1">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span className="text-[10px] opacity-75">{processingStatus[cat.id]}</span>
+                    </div>
+                  ) : (
+                    <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                      {cat.id === "all" ? tabs.length : tabs.filter(t => t.category === cat.id).length}
+                    </Badge>
+                  )}
                 </button>
               ))}
             </div>

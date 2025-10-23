@@ -104,6 +104,7 @@ class TabSenseServiceWorker {
     this.messageHandlers.set('GET_MULTI_TAB_COLLECTION', this.handleGetMultiTabCollection.bind(this));
     this.messageHandlers.set('CLEAR_MULTI_TAB_COLLECTION', this.handleClearMultiTabCollection.bind(this));
     this.messageHandlers.set('GET_ALL_TABS_DATA', this.handleGetAllTabsData.bind(this));
+    this.messageHandlers.set('PROCESS_ALL_TABS', this.handleProcessAllTabs.bind(this));
     
     // Multi-tab AI operations (Milestone 3)
     this.messageHandlers.set('SUMMARIZE_MULTI_TAB', this.handleSummarizeMultiTab.bind(this));
@@ -909,6 +910,105 @@ class TabSenseServiceWorker {
         error: error.message
       };
     }
+  }
+
+  /**
+   * Handle process all tabs request - automatic background processing
+   */
+  async handleProcessAllTabs(payload, sender) {
+    log('info', 'Process all tabs requested - starting automatic background processing');
+
+    try {
+      // Get all open tabs
+      const tabs = await chrome.tabs.query({});
+      
+      // Filter out chrome:// and extension pages
+      const processableTabs = tabs.filter(tab => 
+        tab.url && 
+        !tab.url.startsWith('chrome://') && 
+        !tab.url.startsWith('chrome-extension://') &&
+        !tab.url.startsWith('moz-extension://') &&
+        !tab.url.startsWith('edge://') &&
+        !tab.url.startsWith('about:')
+      );
+
+      log('info', `Found ${processableTabs.length} processable tabs out of ${tabs.length} total tabs`);
+
+      // Process tabs in background (don't wait for completion)
+      this.processTabsInBackground(processableTabs);
+
+      return {
+        success: true,
+        data: {
+          message: 'Background processing started',
+          tabCount: processableTabs.length,
+          totalTabs: tabs.length
+        }
+      };
+
+    } catch (error) {
+      log('error', 'Failed to start background processing', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Process tabs in background without blocking the response
+   */
+  async processTabsInBackground(tabs) {
+    log('info', `Starting background processing of ${tabs.length} tabs`);
+    
+    let processedCount = 0;
+    let errorCount = 0;
+
+    for (const tab of tabs) {
+      try {
+        // Check if tab is already processed
+        const existingData = await this.getTabData(tab.id);
+        if (existingData && existingData.processedAt) {
+          log('debug', `Tab ${tab.id} already processed, skipping`);
+          continue;
+        }
+
+        log('info', `Processing tab ${tab.id}: ${tab.url}`);
+
+        // Extract page data
+        const extractionResult = await this.handleExtractPageData({}, { tab });
+        
+        if (extractionResult.success) {
+          processedCount++;
+          log('info', `Successfully processed tab ${tab.id}`);
+          
+          // Optional: Trigger summarization for high-quality content
+          if (extractionResult.data.qualityScore > 70) {
+            try {
+              await this.handleSummarizeText({
+                text: extractionResult.data.content,
+                options: { maxLength: 'short' }
+              }, { tab });
+              log('info', `Generated summary for tab ${tab.id}`);
+            } catch (summaryError) {
+              log('warn', `Summary generation failed for tab ${tab.id}`, summaryError);
+            }
+          }
+        } else {
+          errorCount++;
+          log('warn', `Failed to process tab ${tab.id}:`, extractionResult.error);
+        }
+
+        // Small delay to prevent overwhelming the system
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+      } catch (error) {
+        errorCount++;
+        log('error', `Error processing tab ${tab.id}`, error);
+      }
+    }
+
+    log('info', `Background processing completed: ${processedCount} processed, ${errorCount} errors`);
   }
 
   /**
