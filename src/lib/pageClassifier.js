@@ -1,10 +1,11 @@
 /**
  * PageClassifier - Detects page type for adaptive summarization
- * Uses heuristics + content analysis to classify web pages
+ * Focuses on summarization templates, not UI categorization
  */
 
 export class PageClassifier {
   constructor() {
+    // Summarization-focused page types (matches AdaptiveSummarizer templates)
     this.classificationRules = {
       news: {
         indicators: [
@@ -14,7 +15,7 @@ export class PageClassifier {
         selectors: ['.news', '.story', '.post', '.article-content', '.news-content'],
         urlPatterns: [/news/, /breaking/, /report/, /story/, /journalism/],
         titlePatterns: [/breaking/, /news/, /report/, /story/, /journalism/],
-        priority: 5  // Lower priority than reference
+        priority: 5
       },
       
       blog: {
@@ -56,7 +57,7 @@ export class PageClassifier {
         selectors: ['#content', '.wiki', '.reference', '.documentation', '#mw-content-text', '.mw-parser-output'],
         urlPatterns: [/wiki/, /reference/, /docs/, /guide/, /wikipedia/, /encyclopedia/],
         titlePatterns: [/wiki/, /reference/, /guide/, /wikipedia/, /encyclopedia/],
-        priority: 10  // High priority for Wikipedia
+        priority: 10
       },
       
       academic: {
@@ -77,7 +78,7 @@ export class PageClassifier {
         selectors: ['#player', '#primary', '#comments', '.ytd-video-primary-info-renderer'],
         urlPatterns: [/youtube\.com\/watch/, /youtu\.be/, /youtube\.com\/channel/],
         titlePatterns: [/video/, /speech/, /address/, /interview/, /debate/],
-        priority: 15  // Highest priority for YouTube videos
+        priority: 15
       }
     };
   }
@@ -140,7 +141,7 @@ export class PageClassifier {
     const bestMatch = sortedTypes[0];
     const confidence = Math.min(bestMatch.score / 10, 1); // Normalize to 0-1
     
-    // Enhanced confidence thresholds based on page type
+    // Enhanced confidence thresholds based on page type (for summarization)
     const confidenceThresholds = {
       reference: 0.4,  // Wikipedia needs high confidence
       academic: 0.5,   // Research papers need very high confidence
@@ -148,6 +149,7 @@ export class PageClassifier {
       blog: 0.25,      // Blogs can be lower confidence
       ecommerce: 0.35, // E-commerce needs medium confidence
       forum: 0.2,      // Forums can be low confidence
+      youtube: 0.3,    // YouTube videos need medium confidence
       generic: 0.1     // Generic is always available
     };
     
@@ -367,7 +369,7 @@ export class PageClassifier {
   }
 
   /**
-   * Get template configuration for page type
+   * Get template configuration for page type (for summarization)
    */
   getTemplateConfig(pageType) {
     const templates = {
@@ -405,6 +407,12 @@ export class PageClassifier {
         sections: ['research_question', 'methodology', 'findings', 'implications'],
         maxLengths: { research_question: 1, methodology: 3, findings: 5, implications: 3 },
         structure: 'academic'
+      },
+      
+      youtube: {
+        sections: ['video_title', 'main_points', 'key_quotes', 'summary'],
+        maxLengths: { main_points: 5, key_quotes: 4, summary: 3 },
+        structure: 'video'
       },
       
       generic: {

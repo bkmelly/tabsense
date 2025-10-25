@@ -696,6 +696,8 @@ Return only 2 sentences, no explanations:`;
 }
 
 // Export for use in other modules
+export { ContextEnhancer };
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = ContextEnhancer;
 } else if (typeof window !== 'undefined') {

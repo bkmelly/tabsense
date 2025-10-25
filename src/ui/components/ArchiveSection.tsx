@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Archive, X, Share2, Trash2, MoreVertical } from 'lucide-react';
+import EmptyState from './EmptyState';
 
 interface Conversation {
   id: string;
@@ -45,8 +46,11 @@ const ArchiveSection: React.FC<ArchiveSectionProps> = ({
       
       <div className="flex-1 px-3 pb-4">
         <div className="max-h-full overflow-y-auto scrollbar-hide">
-          <div className="space-y-2">
-            {conversations.map((conversation) => (
+          {conversations.length === 0 ? (
+            <EmptyState type="no-conversations" />
+          ) : (
+            <div className="space-y-2">
+              {conversations.map((conversation) => (
               <div
                 key={conversation.id}
                 className="relative group"
@@ -123,7 +127,8 @@ const ArchiveSection: React.FC<ArchiveSectionProps> = ({
                 )}
               </div>
             ))}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

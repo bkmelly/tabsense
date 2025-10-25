@@ -20,9 +20,7 @@ export default defineConfig({
         // Content scripts
         content: resolve(__dirname, 'src/content/content-script.js'),
         
-        // UI components
-        popup: resolve(__dirname, 'src/ui/popup/popup.html'),
-        'popup.js': resolve(__dirname, 'src/ui/popup/popup.js'),
+        // UI components - only sidebar
         sidebar2: resolve(__dirname, 'src/ui/sidebar/sidebar.jsx'),
         
         // CSS files
@@ -34,7 +32,6 @@ export default defineConfig({
           // Keep background script as .js
           if (chunkInfo.name === 'background') return 'background.js';
           if (chunkInfo.name === 'content') return 'content.js';
-          if (chunkInfo.name === 'popup.js') return 'popup.js';
           if (chunkInfo.name === 'sidebar2') return 'sidebar2.js';
           return '[name].js';
         },

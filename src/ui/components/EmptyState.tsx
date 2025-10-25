@@ -1,8 +1,8 @@
 import React from 'react';
-import { Globe, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
+import { Globe, RefreshCw, AlertCircle, Loader2, MessageSquare } from 'lucide-react';
 
 interface EmptyStateProps {
-  type: 'loading' | 'no-tabs' | 'error' | 'no-data';
+  type: 'loading' | 'no-tabs' | 'error' | 'no-data' | 'no-conversations';
   message?: string;
   onRetry?: () => void;
 }
@@ -46,6 +46,14 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           showRetry: true
         };
       
+      case 'no-conversations':
+        return {
+          icon: <MessageSquare className="w-8 h-8 text-muted-foreground" />,
+          title: 'No conversations yet',
+          description: 'Start asking questions about your tabs to create your first conversation history',
+          showRetry: false
+        };
+      
       default:
         return {
           icon: <Globe className="w-8 h-8 text-muted-foreground" />,
@@ -71,6 +79,13 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       <p className="text-sm text-muted-foreground mb-6 max-w-sm">
         {content.description}
       </p>
+      
+      {type === 'no-conversations' && (
+        <div className="text-xs text-muted-foreground mb-6">
+          <p>• Ask questions in the Q&A section</p>
+          <p>• Conversations will be saved here automatically</p>
+        </div>
+      )}
       
       {content.showRetry && onRetry && (
         <button

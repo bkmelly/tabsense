@@ -6,12 +6,14 @@
 import React, { useState } from 'react';
 import SettingsCategoryScroller from './SettingsCategoryScroller';
 import APIKeysSettings from './APIKeysSettings';
+import DataSettings from './DataSettings';
 
 interface SettingsPageProps {
   onClose: () => void;
+  onDataAction?: (action: string, data?: any) => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ onClose, onDataAction }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>("general");
 
   const handleApiKeyChange = (modelId: string, apiKey: string) => {
@@ -33,6 +35,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
             onModelToggle={handleModelToggle}
           />
         );
+      case 'data':
+        return (
+          <DataSettings 
+            onDataAction={onDataAction}
+          />
+        );
       default:
         return (
           <div className="text-center text-gray-500">
@@ -42,7 +50,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
             <p className="text-gray-400">
               {selectedCategory === 'general' && 'General application settings'}
               {selectedCategory === 'appearance' && 'Customize the look and feel'}
-              {selectedCategory === 'data' && 'Manage data storage and sync'}
               {selectedCategory === 'privacy' && 'Privacy and security settings'}
               {selectedCategory === 'about' && 'About TabSense AI'}
             </p>

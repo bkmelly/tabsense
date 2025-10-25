@@ -7,69 +7,21 @@
 console.log('[TabSense] Service worker script loading...');
 console.log('[TabSense] Chrome runtime available:', typeof chrome !== 'undefined');
 console.log('[TabSense] Chrome runtime API available:', typeof chrome?.runtime !== 'undefined');
-console.log('[TabSense] Service worker entry point loading...');
-console.log('[TabSense] Service worker entry point loaded');
 
-// Essential imports only - loaded immediately
 import { configManager, DEFAULT_CONFIG } from '../config/index.js';
 import { CredentialManager } from '../lib/credentialManager.js';
+import { AIAdapter } from '../lib/aiAdapter.js';
 import { log } from '../utils/index.js';
+import { unifiedAPI } from '../lib/api/unifiedAPI.js';
+import { ContentExtractor } from '../lib/contentExtractor.js';
+import { ContentScorer } from '../lib/contentScorer.js';
+import { URLFilter } from '../lib/urlFilter.js';
+import { enhancedCategorizer } from '../lib/enhancedCategorizer.js';
+import { AdaptiveSummarizer } from '../lib/adaptiveSummarizer.js';
+import { CachingManager } from '../lib/cachingManager.js';
+import { ContextEnhancer } from '../lib/contextEnhancer.js';
 
-console.log('[TabSense] Essential imports loaded successfully');
-
-// Dynamic imports - loaded on demand to prevent registration issues
-let AIAdapter, unifiedAPI, ContentExtractor, ContentScorer, URLFilter;
-let enhancedCategorizer, AdaptiveSummarizer, CachingManager, ContextEnhancer;
-
-// Dynamic import function
-async function loadDynamicModules() {
-  try {
-    console.log('[TabSense] Loading dynamic modules...');
-    console.log('[TabSense] Starting Promise.all for dynamic imports...');
-    
-    const [
-      aiAdapterModule,
-      unifiedAPIModule,
-      contentExtractorModule,
-      contentScorerModule,
-      urlFilterModule,
-      enhancedCategorizerModule,
-      adaptiveSummarizerModule,
-      cachingManagerModule,
-      contextEnhancerModule
-    ] = await Promise.all([
-      import('../lib/aiAdapter.js'),
-      import('../lib/api/unifiedAPI.js'),
-      import('../lib/contentExtractor.js'),
-      import('../lib/contentScorer.js'),
-      import('../lib/urlFilter.js'),
-      import('../lib/enhancedCategorizer.js'),
-      import('../lib/adaptiveSummarizer.js'),
-      import('../lib/cachingManager.js'),
-      import('../lib/contextEnhancer.js')
-    ]);
-    
-    console.log('[TabSense] All dynamic imports completed successfully');
-    
-    // Assign to module variables
-    AIAdapter = aiAdapterModule.AIAdapter;
-    unifiedAPI = unifiedAPIModule.unifiedAPI;
-    ContentExtractor = contentExtractorModule.ContentExtractor;
-    ContentScorer = contentScorerModule.ContentScorer;
-    URLFilter = urlFilterModule.URLFilter;
-    enhancedCategorizer = enhancedCategorizerModule.enhancedCategorizer;
-    AdaptiveSummarizer = adaptiveSummarizerModule.AdaptiveSummarizer;
-    CachingManager = cachingManagerModule.CachingManager;
-    ContextEnhancer = contextEnhancerModule.ContextEnhancer;
-    
-    console.log('[TabSense] ✅ All dynamic modules loaded successfully');
-    return true;
-  } catch (error) {
-    console.error('[TabSense] ❌ Failed to load dynamic modules:', error);
-    console.error('[TabSense] Error details:', error.message, error.stack);
-    return false;
-  }
-}
+console.log('[TabSense] Service worker imports loaded successfully');
 
 /**
  * Service Worker Main Class
@@ -77,75 +29,46 @@ async function loadDynamicModules() {
  */
 class TabSenseServiceWorker {
   constructor() {
-    console.log('[TabSense] Service worker constructor called');
     this.initialized = false;
     this.messageHandlers = new Map();
     this.credentialManager = new CredentialManager();
+    this.aiAdapter = new AIAdapter();
     this.processingTabs = new Set(); // Track tabs being processed
     this.apiInitialized = false;
     
-    // Components will be initialized dynamically
-    this.aiAdapter = null;
-    this.contentExtractor = null;
-    this.contentScorer = null;
-    this.urlFilter = null;
-    this.enhancedCategorizer = null;
-    this.adaptiveSummarizer = null;
-    this.cachingManager = null;
-    this.contextEnhancer = null;
+    // Enhanced content processing instances
+    this.contentExtractor = new ContentExtractor();
+    this.contentScorer = new ContentScorer();
+    this.urlFilter = new URLFilter();
+    this.enhancedCategorizer = enhancedCategorizer;
     
-    console.log('[TabSense] Service worker instance created');
+    // Advanced summarization and context enhancement
+    this.adaptiveSummarizer = null; // Will be initialized with API keys
+    this.cachingManager = new CachingManager();
+    this.contextEnhancer = new ContextEnhancer();
+    
     this.setupMessageHandlers();
-    console.log('[TabSense] Message handlers set up:', this.messageHandlers.size);
   }
 
   /**
    * Initialize the service worker
    */
   async initialize() {
-    console.log('[TabSense] Initialize method called');
     if (this.initialized) {
       log('warn', 'Service worker already initialized');
-      console.log('[TabSense] Service worker already initialized, returning');
       return;
     }
 
     try {
       log('info', 'Initializing TabSense Service Worker...');
-      console.log('[TabSense] Starting initialization process...');
-      
-      // Load dynamic modules first
-      log('info', 'Loading dynamic modules...');
-      console.log('[TabSense] About to call loadDynamicModules()');
-      const modulesLoaded = await loadDynamicModules();
-      console.log('[TabSense] loadDynamicModules() completed, result:', modulesLoaded);
-      if (!modulesLoaded) {
-        throw new Error('Failed to load dynamic modules');
-      }
-      
-      // Initialize components with dynamically loaded modules
-      console.log('[TabSense] Initializing components...');
-      this.aiAdapter = new AIAdapter();
-      this.contentExtractor = new ContentExtractor();
-      this.contentScorer = new ContentScorer();
-      this.urlFilter = new URLFilter();
-      this.enhancedCategorizer = enhancedCategorizer;
-      this.cachingManager = new CachingManager();
-      this.contextEnhancer = new ContextEnhancer();
-      
-      log('info', 'Dynamic modules loaded and components initialized');
-      console.log('[TabSense] Components initialized successfully');
       
       // Initialize configuration
       log('info', 'Loading configuration...');
-      console.log('[TabSense] Loading configuration...');
       await configManager.load();
       log('info', 'Configuration loaded successfully');
-      console.log('[TabSense] Configuration loaded successfully');
       
       // Credential manager is already initialized
       log('info', 'Credential manager initialized');
-      console.log('[TabSense] Credential manager initialized');
 
       // Initialize AI Adapter
       console.log('[TabSense] Initializing AI Adapter...');
@@ -304,19 +227,13 @@ class TabSenseServiceWorker {
       const { action, payload } = message;
       
       console.log('[TabSense] Received message:', action, 'from:', sender.tab?.url || 'unknown');
-      console.log('[TabSense] Message payload:', payload);
       log('info', `Received message: ${action}`, { sender: sender.tab?.url, payload });
       
       const handler = this.messageHandlers.get(action);
-      console.log('[TabSense] Handler lookup result:', handler ? 'found' : 'not found');
-      console.log('[TabSense] Available handlers:', Array.from(this.messageHandlers.keys()));
-      
       if (handler) {
         console.log('[TabSense] Found handler for:', action);
-        console.log('[TabSense] Calling handler...');
         const result = await handler(payload, sender);
         console.log('[TabSense] Handler result for', action, ':', result);
-        log('info', `Handler result for ${action}`, result);
         sendResponse({ success: true, data: result });
       } else {
         console.warn('[TabSense] Unknown message action:', action);
@@ -330,7 +247,6 @@ class TabSenseServiceWorker {
       
     } catch (error) {
       console.error('[TabSense] Message handling failed:', error);
-      console.error('[TabSense] Error details:', error.message, error.stack);
       log('error', 'Message handling failed', error);
       sendResponse({ success: false, error: error.message });
     }
@@ -2640,7 +2556,6 @@ serviceWorker.initialize()
   })
   .catch(error => {
     console.error('[TabSense] ❌ Failed to initialize service worker:', error);
-    console.error('[TabSense] Error details:', error.message, error.stack);
     log('error', 'Failed to initialize service worker', error);
     
     // Try to send error to UI if possible
