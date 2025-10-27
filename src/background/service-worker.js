@@ -97,6 +97,7 @@ class TabSenseServiceWorker {
     
     // Additional handlers
     this.messageHandlers.set('TAB_PROCESSED', this.handleTabProcessed.bind(this));
+    this.messageHandlers.set('PAGE_DATA_EXTRACTED', this.handlePageDataExtracted.bind(this));
     this.messageHandlers.set('GET_CATEGORY_STATS', this.handleGetCategoryStats.bind(this));
     this.messageHandlers.set('ADAPTIVE_SUMMARIZE', this.handleAdaptiveSummarize.bind(this));
     this.messageHandlers.set('ENHANCE_CONTEXT', this.handleEnhanceContext.bind(this));
@@ -195,8 +196,14 @@ class TabSenseServiceWorker {
       // Filter out unwanted pages
       const url = tab.url || '';
       
-      // Don't process search engines, directory pages, or empty URLs
-      if (url.includes('google.com/search') ||
+      // Don't process internal Chrome pages, extension pages, or blank URLs
+      if (url.startsWith('chrome://') || 
+          url.startsWith('chrome-extension://') ||
+          url.startsWith('edge://') ||
+          url.startsWith('about:') ||
+          url.startsWith('moz-extension://') ||
+          url.startsWith('view-source:') ||
+          url.includes('google.com/search') ||
           url.includes('bing.com/search') ||
           url.includes('duckduckgo.com/?q=') ||
           url.includes('yahoo.com/search') ||
@@ -214,6 +221,50 @@ class TabSenseServiceWorker {
         });
         
         const extractedData = results[0]?.result || {};
+        console.log('[TabSense] Extracted data:', { 
+          hasContent: !!extractedData.content, 
+          contentLength: extractedData.content?.length || 0,
+          title: extractedData.title
+        });
+        
+        // Generate adaptive summary using offscreen document
+        let summary = extractedData.summary || 'Content extracted';
+        
+        // Only try adaptive summarization if we have actual content
+        if (extractedData.content && extractedData.content.length > 100) {
+          try {
+            console.log('[TabSense] Calling adaptive summarizer with content length:', extractedData.content.length);
+            
+            const summaryResponse = await chrome.runtime.sendMessage(
+              {
+                target: 'offscreen',
+                action: 'ADAPTIVE_SUMMARIZE',
+                text: extractedData.content,
+                url: tab.url,
+                title: extractedData.title || tab.title,
+                metadata: {
+                  tabId: tab.id,
+                  extractedAt: new Date().toISOString(),
+                  wordCount: extractedData.wordCount
+                },
+                options: { length: 'medium' }
+              }
+            );
+            
+            console.log('[TabSense] Adaptive summarizer response:', summaryResponse);
+            
+            if (summaryResponse && summaryResponse.success && summaryResponse.data) {
+              summary = summaryResponse.data.summary || summaryResponse.data;
+              console.log('[TabSense] ✅ Adaptive summary generated successfully, length:', summary.length);
+            } else {
+              console.log('[TabSense] ⚠️ Adaptive summary response invalid:', summaryResponse);
+            }
+          } catch (summaryError) {
+            console.error('[TabSense] Adaptive summary failed:', summaryError);
+          }
+        } else {
+          console.log('[TabSense] Skipping adaptive summary - insufficient content');
+        }
         
         // Store tab data
         const tabData = {
@@ -221,7 +272,7 @@ class TabSenseServiceWorker {
           title: extractedData.title || tab.title || 'Untitled',
           url: tab.url,
           content: extractedData.content || `Content from ${tab.title || tab.url}`,
-          summary: extractedData.summary || 'Content extracted',
+          summary: summary,
           category: extractedData.category || 'generic',
           processed: true,
           timestamp: Date.now()
@@ -250,7 +301,7 @@ class TabSenseServiceWorker {
           action: 'TAB_AUTO_PROCESSED',
           data: tabData
         });
-      } catch (error) {
+    } catch (error) {
         console.error('[TabSense] Error extracting content from tab:', error);
       }
     } catch (error) {
@@ -416,11 +467,24 @@ class TabSenseServiceWorker {
       const allData = await chrome.storage.local.get();
       const dataSize = JSON.stringify(allData).length;
 
+      // Count all tabs in various storage keys
+      const summaryCount = 
+        (allData.tab_summaries?.length || 0) + 
+        (allData.processed_tabs?.length || 0) + 
+        (allData.multi_tab_collection?.length || 0);
+      
+      console.log('[TabSense] Stats breakdown:', {
+        tab_summaries: allData.tab_summaries?.length || 0,
+        processed_tabs: allData.processed_tabs?.length || 0,
+        multi_tab_collection: allData.multi_tab_collection?.length || 0,
+        total: summaryCount
+      });
+
           return {
             success: true,
         data: {
           stats: {
-            summaries: (allData.tab_summaries?.length || 0) + (allData.processed_tabs?.length || 0),
+            summaries: summaryCount,
             conversations: allData.archive_conversations?.length || 0,
             settings: 1, // There's always at least a config object
             totalSize: this.formatBytes(dataSize)
@@ -490,7 +554,7 @@ class TabSenseServiceWorker {
       }
       
       // No context - just placeholder
-          return {
+      return {
             success: true,
             data: {
           answer: 'AI response functionality coming soon. Please ask a question about your tabs.',
@@ -531,9 +595,9 @@ class TabSenseServiceWorker {
       const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
       const summary = sentences.slice(0, 3).join('. ') + '.';
       
-      return {
-        success: true,
-        data: {
+          return {
+            success: true,
+            data: {
           summary
         }
       };
@@ -586,7 +650,7 @@ class TabSenseServiceWorker {
           });
           
           const extractedData = results[0]?.result || {};
-
+        
         return {
             id: tab.id,
             title: extractedData.title || tab.title || 'Untitled',
@@ -647,8 +711,8 @@ class TabSenseServiceWorker {
       const result = await chrome.storage.local.get(['tabsense_api_keys']);
       const keys = result.tabsense_api_keys || {};
       
-      return {
-        success: true,
+        return {
+          success: true,
         data: {
           youtube: { available: true, configured: !!keys.youtube },
           news: { available: true, configured: !!keys.newsapi }
@@ -687,7 +751,7 @@ class TabSenseServiceWorker {
     console.log('[TabSense] GET_API_KEYS received');
     try {
       const result = await chrome.storage.local.get(['tabsense_api_keys', 'ai_api_keys', 'other_api_keys']);
-      
+
       return {
         success: true,
         data: {
@@ -716,7 +780,7 @@ class TabSenseServiceWorker {
       const keys = result[storageKey] || {};
       keys[provider] = apiKey;
       await chrome.storage.local.set({ [storageKey]: keys });
-
+      
       return {
         success: true,
         data: { message: 'API key saved successfully' }
@@ -746,7 +810,7 @@ class TabSenseServiceWorker {
         success: true,
         data: { message: 'API key deleted successfully' }
       };
-      } catch (error) {
+    } catch (error) {
       console.error('[TabSense] Error deleting API key:', error);
       return { success: false, error: error.message };
     }
@@ -771,7 +835,7 @@ class TabSenseServiceWorker {
         success: true,
         data: { message: 'API enabled state updated' }
       };
-    } catch (error) {
+      } catch (error) {
       console.error('[TabSense] Error toggling API enabled:', error);
       return { success: false, error: error.message };
     }
@@ -788,7 +852,7 @@ class TabSenseServiceWorker {
         chromeAiAvailable = await this.checkChromeAIAvailability();
         await chrome.storage.local.set({ chrome_ai_available: chromeAiAvailable });
       }
-      
+
       return {
         success: true,
         data: {
@@ -817,6 +881,17 @@ class TabSenseServiceWorker {
     } catch (error) {
       console.log('[TabSense] Chrome AI not available:', error.message);
       return false;
+    }
+  }
+
+  async handlePageDataExtracted(payload, sender) {
+    console.log('[TabSense] PAGE_DATA_EXTRACTED received');
+    try {
+      // This is for content scripts that send page data - we can just acknowledge it
+      return { success: true, data: { message: 'Page data received' } };
+    } catch (error) {
+      console.error('[TabSense] Error handling page data:', error);
+      return { success: false, error: error.message };
     }
   }
 
@@ -969,10 +1044,26 @@ class TabSenseServiceWorker {
   async handleCheckCachedSummaries(payload, sender) {
     console.log('[TabSense] CHECK_CACHED_SUMMARIES received');
     try {
-      const result = await chrome.storage.local.get(['cache']);
+      const result = await chrome.storage.local.get(['cache', 'multi_tab_collection', 'processed_tabs']);
       const cache = result.cache || {};
+      const tabs = result.multi_tab_collection || result.processed_tabs || [];
+      
       const count = Object.keys(cache).length;
-      return { success: true, data: { count, cached: count > 0 } };
+      const cacheSize = JSON.stringify(cache).length;
+      const formattedSize = this.formatBytes(cacheSize);
+      
+      return { 
+        success: true, 
+        data: { 
+          totalCached: count,
+          cached: count > 0,
+          cacheSize: formattedSize,
+          cacheSizeBytes: cacheSize,
+          tabs: tabs.length,
+          hitRate: 0, // Could be calculated if we tracked hits
+          lastCleanup: 'Never' // Could track this
+        } 
+      };
     } catch (error) {
       console.error('[TabSense] Error checking cache:', error);
       return { success: false, error: error.message };
@@ -1033,7 +1124,7 @@ class TabSenseServiceWorker {
     try {
       const result = await chrome.storage.local.get(['config']);
       return { success: true, data: { config: result.config || {} } };
-        } catch (error) {
+    } catch (error) {
       console.error('[TabSense] Error getting config:', error);
       return { success: false, error: error.message };
     }
@@ -1083,7 +1174,7 @@ class TabSenseServiceWorker {
       // Fallback: extract first 200 chars
       const summary = combinedContent.substring(0, 200) + '...';
       return { success: true, data: { summary, tabCount: relevantTabs.length } };
-    } catch (error) {
+        } catch (error) {
       console.error('[TabSense] Error summarizing multi-tab:', error);
       return { success: false, error: error.message };
     }

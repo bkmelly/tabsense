@@ -8,6 +8,7 @@ import { CachingManager } from './cachingManager.js';
 import { PerformanceMonitor } from './performanceMonitor.js';
 import { Chunker } from './chunker.js';
 import { ContextEnhancer } from './contextEnhancer.js';
+import { AIAdapter } from './aiAdapter.js';
 
 export class AdaptiveSummarizer {
   constructor(apiKey, model = 'gemini-2.0-flash') {
@@ -19,6 +20,7 @@ export class AdaptiveSummarizer {
     this.cachingManager = new CachingManager();
     this.performanceMonitor = new PerformanceMonitor();
     this.contextEnhancer = new ContextEnhancer();
+    this.aiAdapter = new AIAdapter();
     this.templates = this.initializeTemplates();
     
     // Performance optimization settings
@@ -526,37 +528,13 @@ ${text}`;
     const prompt = this.buildTemplatePrompt(text, template, length, externalContext);
     
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.3,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: length === 'short' ? 1000 : length === 'medium' ? 2500 : 4000,
-          }
-        })
+      // Use AI Adapter for intelligent routing and fallbacks
+      const summary = await this.aiAdapter.summarizeText(prompt, {
+        maxLength: length,
+        language: 'en'
       });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const data = await response.json();
       
-      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-        throw new Error('Invalid response structure from Gemini');
-      }
-
-      return data.candidates[0].content.parts[0].text;
+      return summary;
     } catch (error) {
       console.error('[AdaptiveSummarizer] AI processing failed:', error);
       throw error;

@@ -68,9 +68,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return; // Ignore messages not for us
   }
   
-  console.log('[TabSense Offscreen] Received message:', message.action);
+  console.log('[TabSense Offscreen] Received message:', message.action, 'Full message:', message);
   
-  const { action, payload } = message;
+  const { action, payload, text, url, title, metadata, options } = message;
   
   // Route to appropriate handler
   switch (action) {
@@ -91,7 +91,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
       
     case 'ADAPTIVE_SUMMARIZE':
-      handleAdaptiveSummarize(payload, sendResponse);
+      // For flat structure, extract the payload from the message itself
+      const adaptivePayload = payload || { text, url, title, metadata, options };
+      handleAdaptiveSummarize(adaptivePayload, sendResponse);
       return true;
       
     case 'ENHANCE_CONTEXT':

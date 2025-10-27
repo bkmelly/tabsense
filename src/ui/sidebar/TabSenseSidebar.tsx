@@ -357,48 +357,48 @@ const TabSenseSidebar: React.FC = () => {
     const handleMessage = (message: any) => {
       console.log('[TabSense] Received message from service worker:', message);
       
-      if (message.action === 'TAB_PROCESSED') {
+      if (message.action === 'TAB_PROCESSED' || message.action === 'TAB_AUTO_PROCESSED') {
         console.log('[TabSense] Received real-time tab update:', message.data);
         
         // Add the new tab to the existing tabs
         const newTab = {
-          id: `real-${Date.now()}`,
+          id: message.data.id || `real-${Date.now()}`,
           title: message.data.title || 'Untitled',
           url: message.data.url,
           favicon: `https://www.google.com/s2/favicons?domain=${new URL(message.data.url).hostname}`,
-          summary: message.data.processedData.summary || 'Content processed',
+          summary: message.data.summary || (message.data.processedData?.summary) || 'Content processed',
           keyPoints: [
-            `📊 Quality: ${message.data.processedData.qualityScore || 'N/A'}/100`,
-            `📖 ${message.data.processedData.wordCount || 0} words`,
-            `🏷️ ${message.data.processedData.category || 'General'}`,
-            `👤 ${message.data.processedData.author || 'Unknown author'}`
+            `📊 Quality: ${message.data.processedData?.qualityScore || 'N/A'}/100`,
+            `📖 ${message.data.processedData?.wordCount || 0} words`,
+            `🏷️ ${message.data.category || message.data.processedData?.category || 'General'}`,
+            `👤 ${message.data.processedData?.author || 'Unknown author'}`
           ],
           analyzing: false,
-          category: (message.data.processedData.category || 'generic') as "youtube" | "news" | "documentation" | "forum" | "blog" | "ecommerce" | "academic" | "entertainment" | "generic",
+          category: (message.data.category || message.data.processedData?.category || 'generic') as "youtube" | "news" | "documentation" | "forum" | "blog" | "ecommerce" | "academic" | "entertainment" | "generic",
           // Enhanced categorization metadata
-          categoryLabel: message.data.processedData.categoryLabel,
-          categoryIcon: message.data.processedData.categoryIcon,
-          categoryColor: message.data.processedData.categoryColor,
-          categoryConfidence: message.data.processedData.categoryConfidence,
-          categoryMethod: message.data.processedData.categoryMethod,
-          categoryReasoning: message.data.processedData.categoryReasoning,
-          author: message.data.processedData.author,
-          publishedTime: message.data.processedData.publishedTime,
-          description: message.data.processedData.description,
-          tags: message.data.processedData.tags,
-          topics: message.data.processedData.topics,
-          wordCount: message.data.processedData.wordCount,
-          readingTime: message.data.processedData.readingTime,
-          qualityScore: message.data.processedData.qualityScore,
+          categoryLabel: message.data.processedData?.categoryLabel,
+          categoryIcon: message.data.processedData?.categoryIcon,
+          categoryColor: message.data.processedData?.categoryColor,
+          categoryConfidence: message.data.processedData?.categoryConfidence,
+          categoryMethod: message.data.processedData?.categoryMethod,
+          categoryReasoning: message.data.processedData?.categoryReasoning,
+          author: message.data.processedData?.author,
+          publishedTime: message.data.processedData?.publishedTime,
+          description: message.data.processedData?.description,
+          tags: message.data.processedData?.tags,
+          topics: message.data.processedData?.topics,
+          wordCount: message.data.processedData?.wordCount,
+          readingTime: message.data.processedData?.readingTime,
+          qualityScore: message.data.processedData?.qualityScore,
           // Processing metadata
-          metadata: message.data.processedData.metadata || {
-            processedAt: message.data.processedData.processedAt,
+          metadata: message.data.processedData?.metadata || {
+            processedAt: message.data.processedData?.processedAt,
             summaryMethod: message.data.summaryMethod,
-            cached: message.data.processedData.cached,
+            cached: message.data.processedData?.cached,
             contextEnhanced: message.data.contextEnhanced,
             contextSources: message.data.contextSources,
-            extractedAt: message.data.processedData.extractedAt,
-            tabId: message.data.processedData.tabId
+            extractedAt: message.data.processedData?.extractedAt,
+            tabId: message.data.processedData?.tabId
           }
         };
         
