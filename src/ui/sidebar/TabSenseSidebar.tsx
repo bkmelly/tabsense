@@ -675,14 +675,25 @@ const TabSenseSidebar: React.FC = () => {
     
     if (data?.refreshNeeded) {
       console.log('[TabSense] Refreshing tab data after data action');
-      // Clear current tabs immediately
+      
+      // Clear current tabs immediately for instant UI feedback
       setTabs([]);
+      console.log('[TabSense] Cleared tabs array');
+      
+      // Give storage a moment to commit the deletion
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       // Reload tab data
       await loadRealTabData();
+      console.log('[TabSense] Reloaded tab data');
+      
       // Also refresh conversations if they were deleted
       if (action.includes('CONVERSATIONS') || action.includes('CLEAR_ALL')) {
         await loadConversationsFromArchive();
+        console.log('[TabSense] Reloaded conversations');
       }
+      
+      console.log('[TabSense] UI refreshed after action:', action);
     }
   };
 

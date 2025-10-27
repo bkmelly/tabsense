@@ -137,28 +137,33 @@ const DataSettings: React.FC<DataSettingsProps> = ({ onDataAction }) => {
 
       if (response.success) {
         setActionStatus(prev => ({ ...prev, [actionType]: 'success' }));
-        loadStorageStats(); // Refresh stats after action
+        
+        // Show success toast immediately for better UX
+        const actionNames: { [key: string]: string } = {
+          'DATA_DELETE_SUMMARIES': 'All summaries deleted successfully',
+          'DATA_DELETE_CONVERSATIONS': 'All conversations deleted successfully',
+          'DATA_RESET_SETTINGS': 'Settings reset successfully',
+          'DATA_CLEAR_ALL': 'All data cleared successfully',
+          'DATA_EXPORT_DATA': 'Data exported successfully',
+          'CLEAR_CACHE': 'Cache cleared successfully'
+        };
+        
+        success('Success', actionNames[actionType] || 'Action completed successfully');
+        
+        // Call parent callback to refresh UI BEFORE waiting
+        if (onDataAction) {
+          onDataAction(actionType, { refreshNeeded: true });
+        }
+        
+        // Wait a moment for storage to be written and UI to refresh
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Refresh stats after UI has had time to update
+        loadStorageStats();
         
         // Refresh cache stats if cache was cleared
         if (actionType === 'CLEAR_CACHE') {
           loadCacheStats();
-        }
-        
-        // Show success toast
-                 const actionNames: { [key: string]: string } = {
-                   'DATA_DELETE_SUMMARIES': 'All summaries deleted successfully',
-                   'DATA_DELETE_CONVERSATIONS': 'All conversations deleted successfully',
-                   'DATA_RESET_SETTINGS': 'Settings reset successfully',
-                   'DATA_CLEAR_ALL': 'All data cleared successfully',
-                   'DATA_EXPORT_DATA': 'Data exported successfully',
-                   'CLEAR_CACHE': 'Cache cleared successfully'
-                 };
-        
-        success('Success', actionNames[actionType] || 'Action completed successfully');
-        
-        // Call parent callback to refresh UI
-        if (onDataAction) {
-          onDataAction(actionType, { refreshNeeded: true });
         }
       } else {
         setActionStatus(prev => ({ ...prev, [actionType]: 'error' }));

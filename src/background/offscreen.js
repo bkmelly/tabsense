@@ -83,6 +83,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleEnhanceContext(payload, sendResponse);
       return true;
       
+    case 'ANSWER_QUESTION':
+      handleAnswerQuestion(payload, sendResponse);
+      return true;
+      
+    case 'SUMMARIZE_TEXT':
+      handleSummarizeText(payload, sendResponse);
+      return true;
+      
     default:
       console.warn('[TabSense Offscreen] Unknown action:', action);
       sendResponse({ error: 'Unknown action' });
@@ -158,10 +166,53 @@ async function handleEnhanceContext(payload, sendResponse) {
       await initializeHeavyModules();
     }
     const enhancedContext = await contextEnhancer.enhance(payload.context, payload.options);
-    sendResponse({ enhancedContext });
+    sendResponse({ success: true, data: { enhancedContext } });
   } catch (error) {
     console.error('[TabSense Offscreen] Error enhancing context:', error);
-    sendResponse({ error: error.message });
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+async function handleAnswerQuestion(payload, sendResponse) {
+  console.log('[TabSense Offscreen] ANSWER_QUESTION received');
+  try {
+    // For now, return placeholder - AI integration will be added later
+    sendResponse({ 
+      success: true, 
+      data: { 
+        answer: 'AI response from offscreen (placeholder)',
+        sources: [],
+        confidence: 0.6
+      } 
+    });
+  } catch (error) {
+    console.error('[TabSense Offscreen] Error answering question:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+async function handleSummarizeText(payload, sendResponse) {
+  console.log('[TabSense Offscreen] SUMMARIZE_TEXT received');
+  try {
+    const { text } = payload || {};
+    
+    if (!adaptiveSummarizer) {
+      await initializeHeavyModules();
+    }
+    
+    // Try to use adaptiveSummarizer if available
+    if (adaptiveSummarizer && text) {
+      const summary = await adaptiveSummarizer.summarize(text, { length: 'medium' });
+      sendResponse({ success: true, data: { summary } });
+    } else {
+      // Fallback: simple extractive
+      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+      const summary = sentences.slice(0, 3).join('. ') + '.';
+      sendResponse({ success: true, data: { summary } });
+    }
+  } catch (error) {
+    console.error('[TabSense Offscreen] Error summarizing:', error);
+    sendResponse({ success: false, error: error.message });
   }
 }
 
