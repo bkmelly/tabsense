@@ -1,1911 +1,304 @@
 /**
- * TabSense Service Worker - Milestone 1
- * Foundation service worker with message handling and configuration
+ * TabSense Service Worker - ABSOLUTELY MINIMAL VERSION
+ * No imports, no external dependencies
  */
 
-// Service worker startup log
-console.log('[TabSense] Service worker script loading...');
-console.log('[TabSense] Chrome runtime available:', typeof chrome !== 'undefined');
-console.log('[TabSense] Chrome runtime API available:', typeof chrome?.runtime !== 'undefined');
-console.log('[TabSense] Service worker entry point loading...');
-console.log('[TabSense] Service worker entry point loaded');
+console.log('[TabSense] Minimal service worker loaded');
 
-// Essential imports only - loaded immediately
-import { configManager, DEFAULT_CONFIG } from '../config/index.js';
-import { CredentialManager } from '../lib/credentialManager.js';
-import { log } from '../utils/index.js';
-
-console.log('[TabSense] Essential imports loaded successfully');
-
-// Dynamic imports - loaded on demand to prevent registration issues
-let AIAdapter, unifiedAPI, ContentExtractor, ContentScorer, URLFilter;
-let enhancedCategorizer, AdaptiveSummarizer, CachingManager, ContextEnhancer;
-
-// Dynamic import function
-async function loadDynamicModules() {
+// Function to extract page content (injected into tabs)
+function extractPageContent() {
   try {
-    console.log('[TabSense] Loading dynamic modules...');
-    console.log('[TabSense] Starting Promise.all for dynamic imports...');
+    // Simple content extraction
+    const title = document.title;
+    const textContent = document.body.innerText || document.body.textContent || '';
+    const metaDescription = document.querySelector('meta[name="description"]')?.content || '';
     
-    const [
-      aiAdapterModule,
-      unifiedAPIModule,
-      contentExtractorModule,
-      contentScorerModule,
-      urlFilterModule,
-      enhancedCategorizerModule,
-      adaptiveSummarizerModule,
-      cachingManagerModule,
-      contextEnhancerModule
-    ] = await Promise.all([
-      import('../lib/aiAdapter.js'),
-      import('../lib/api/unifiedAPI.js'),
-      import('../lib/contentExtractor.js'),
-      import('../lib/contentScorer.js'),
-      import('../lib/urlFilter.js'),
-      import('../lib/enhancedCategorizer.js'),
-      import('../lib/adaptiveSummarizer.js'),
-      import('../lib/cachingManager.js'),
-      import('../lib/contextEnhancer.js')
-    ]);
+    // Extract main content
+    const article = document.querySelector('article') || 
+                    document.querySelector('main') || 
+                    document.querySelector('[role="main"]');
     
-    console.log('[TabSense] All dynamic imports completed successfully');
+    const mainContent = article ? article.innerText : textContent;
     
-    // Assign to module variables
-    AIAdapter = aiAdapterModule.AIAdapter;
-    unifiedAPI = unifiedAPIModule.unifiedAPI;
-    ContentExtractor = contentExtractorModule.ContentExtractor;
-    ContentScorer = contentScorerModule.ContentScorer;
-    URLFilter = urlFilterModule.URLFilter;
-    enhancedCategorizer = enhancedCategorizerModule.enhancedCategorizer;
-    AdaptiveSummarizer = adaptiveSummarizerModule.AdaptiveSummarizer;
-    CachingManager = cachingManagerModule.CachingManager;
-    ContextEnhancer = contextEnhancerModule.ContextEnhancer;
+    // Get images
+    const images = Array.from(document.querySelectorAll('img'))
+      .slice(0, 5)
+      .map(img => img.src)
+      .filter(src => src && !src.startsWith('data:'));
     
-    console.log('[TabSense] ✅ All dynamic modules loaded successfully');
-    return true;
+    return {
+      title: title,
+      content: mainContent.substring(0, 5000), // Limit content size
+      summary: metaDescription || mainContent.substring(0, 200),
+      images: images,
+      category: 'generic',
+      wordCount: mainContent.split(/\s+/).length
+    };
   } catch (error) {
-    console.error('[TabSense] ❌ Failed to load dynamic modules:', error);
-    console.error('[TabSense] Error details:', error.message, error.stack);
-    return false;
+    console.error('Error extracting content:', error);
+    return {
+      title: document.title,
+      content: '',
+      summary: 'Failed to extract content',
+      category: 'generic'
+    };
   }
 }
 
-/**
- * Service Worker Main Class
- * Handles extension lifecycle and core functionality
- */
 class TabSenseServiceWorker {
   constructor() {
     console.log('[TabSense] Service worker constructor called');
     this.initialized = false;
     this.messageHandlers = new Map();
-    this.credentialManager = new CredentialManager();
-    this.processingTabs = new Set(); // Track tabs being processed
-    this.apiInitialized = false;
-    
-    // Components will be initialized dynamically
-    this.aiAdapter = null;
-    this.contentExtractor = null;
-    this.contentScorer = null;
-    this.urlFilter = null;
-    this.enhancedCategorizer = null;
-    this.adaptiveSummarizer = null;
-    this.cachingManager = null;
-    this.contextEnhancer = null;
-    
-    console.log('[TabSense] Service worker instance created');
     this.setupMessageHandlers();
-    console.log('[TabSense] Message handlers set up:', this.messageHandlers.size);
   }
 
-  /**
-   * Initialize the service worker
-   */
-  async initialize() {
-    console.log('[TabSense] Initialize method called');
-    if (this.initialized) {
-      log('warn', 'Service worker already initialized');
-      console.log('[TabSense] Service worker already initialized, returning');
-      return;
-    }
-
-    try {
-      log('info', 'Initializing TabSense Service Worker...');
-      console.log('[TabSense] Starting initialization process...');
-      
-      // Load dynamic modules first
-      log('info', 'Loading dynamic modules...');
-      console.log('[TabSense] About to call loadDynamicModules()');
-      const modulesLoaded = await loadDynamicModules();
-      console.log('[TabSense] loadDynamicModules() completed, result:', modulesLoaded);
-      if (!modulesLoaded) {
-        throw new Error('Failed to load dynamic modules');
-      }
-      
-      // Initialize components with dynamically loaded modules
-      console.log('[TabSense] Initializing components...');
-      this.aiAdapter = new AIAdapter();
-      this.contentExtractor = new ContentExtractor();
-      this.contentScorer = new ContentScorer();
-      this.urlFilter = new URLFilter();
-      this.enhancedCategorizer = enhancedCategorizer;
-      this.cachingManager = new CachingManager();
-      this.contextEnhancer = new ContextEnhancer();
-      
-      log('info', 'Dynamic modules loaded and components initialized');
-      console.log('[TabSense] Components initialized successfully');
-      
-      // Initialize configuration
-      log('info', 'Loading configuration...');
-      console.log('[TabSense] Loading configuration...');
-      await configManager.load();
-      log('info', 'Configuration loaded successfully');
-      console.log('[TabSense] Configuration loaded successfully');
-      
-      // Credential manager is already initialized
-      log('info', 'Credential manager initialized');
-      console.log('[TabSense] Credential manager initialized');
-
-      // Initialize AI Adapter
-      console.log('[TabSense] Initializing AI Adapter...');
-      log('info', 'Initializing AI Adapter...');
-      await this.aiAdapter.initialize();
-      console.log('[TabSense] AI Adapter initialized successfully');
-      log('info', 'AI Adapter initialized successfully');
-
-      // Initialize APIs
-      console.log('[TabSense] Initializing APIs...');
-      log('info', 'Initializing APIs...');
-      await unifiedAPI.initialize();
-      console.log('[TabSense] APIs initialized successfully');
-      log('info', 'APIs initialized successfully');
-      
-      // Set up Chrome extension listeners
-      console.log('[TabSense] Setting up Chrome listeners...');
-      log('info', 'Setting up Chrome listeners...');
-      this.setupChromeListeners();
-      console.log('[TabSense] Chrome listeners set up successfully');
-      log('info', 'Chrome listeners set up successfully');
-      
-      this.initialized = true;
-      log('info', 'Service worker initialization complete');
-      
-      // Send initialization status to UI
-      this.broadcastMessage({
-        action: 'SERVICE_WORKER_READY',
-        payload: { timestamp: Date.now() }
-      });
-      
-    } catch (error) {
-      log('error', 'Service worker initialization failed', error);
-      this.handleInitializationError(error);
-    }
-  }
-
-  /**
-   * Setup message handlers for different actions
-   */
   setupMessageHandlers() {
-    // Basic system messages
+    console.log('[TabSense] Setting up message handlers...');
+    
+    // Essential handlers
     this.messageHandlers.set('PING', this.handlePing.bind(this));
     this.messageHandlers.set('GET_STATUS', this.handleGetStatus.bind(this));
-    this.messageHandlers.set('GET_CONFIG', this.handleGetConfig.bind(this));
-    this.messageHandlers.set('UPDATE_CONFIG', this.handleUpdateConfig.bind(this));
     
-    // Page data extraction messages (Milestone 2)
-    this.messageHandlers.set('PAGE_DATA_EXTRACTED', this.handlePageDataExtracted.bind(this));
-    this.messageHandlers.set('EXTRACT_PAGE_DATA', this.handleExtractPageData.bind(this));
-    this.messageHandlers.set('GET_PAGE_DATA', this.handleGetPageData.bind(this));
+    // Archive handlers
+    this.messageHandlers.set('GET_ARCHIVE_CONVERSATIONS', this.handleGetArchiveConversations.bind(this));
+    this.messageHandlers.set('SAVE_CONVERSATION_TO_ARCHIVE', this.handleSaveConversationToArchive.bind(this));
+    this.messageHandlers.set('DELETE_ARCHIVE_CONVERSATION', this.handleDeleteArchiveConversation.bind(this));
     
-    // Multi-tab operations (Milestone 2+)
+    // Tab handlers
     this.messageHandlers.set('GET_MULTI_TAB_COLLECTION', this.handleGetMultiTabCollection.bind(this));
     this.messageHandlers.set('CLEAR_MULTI_TAB_COLLECTION', this.handleClearMultiTabCollection.bind(this));
     this.messageHandlers.set('GET_ALL_TABS_DATA', this.handleGetAllTabsData.bind(this));
-    this.messageHandlers.set('PROCESS_ALL_TABS', this.handleProcessAllTabs.bind(this));
-    
-    // Multi-tab AI operations (Milestone 3)
-    this.messageHandlers.set('SUMMARIZE_MULTI_TAB', this.handleSummarizeMultiTab.bind(this));
-    this.messageHandlers.set('ANSWER_MULTI_TAB_QUESTION', this.handleAnswerMultiTabQuestion.bind(this));
-    
-    // AI-related messages (will be implemented in later milestones)
-    this.messageHandlers.set('SUMMARIZE_TEXT', this.handleSummarizeText.bind(this));
-    this.messageHandlers.set('ANSWER_QUESTION', this.handleAnswerQuestion.bind(this));
-    
-    // Adaptive summarization messages
-    this.messageHandlers.set('ADAPTIVE_SUMMARIZE', this.handleAdaptiveSummarize.bind(this));
-    this.messageHandlers.set('CHECK_CACHED_SUMMARIES', this.handleCheckCachedSummaries.bind(this));
-    this.messageHandlers.set('GET_CACHED_SUMMARY_BY_URL', this.handleGetCachedSummaryByUrl.bind(this));
-    
-    // Context enhancement messages
-    this.messageHandlers.set('ENHANCE_CONTEXT', this.handleEnhanceContext.bind(this));
-    this.messageHandlers.set('GET_EXTERNAL_CONTEXT', this.handleGetExternalContext.bind(this));
-    
-    // Tab-related messages (will be implemented in later milestones)
-    this.messageHandlers.set('GET_TABS', this.handleGetTabs.bind(this));
-    this.messageHandlers.set('PROCESS_TAB', this.handleProcessTab.bind(this));
-    
-    // YouTube-specific messages (Phase 1.2)
-    this.messageHandlers.set('EXTRACT_YOUTUBE_DATA', this.handleExtractYouTubeData.bind(this));
-    
-    // API management messages
-    this.messageHandlers.set('INITIALIZE_APIS', this.handleInitializeAPIs.bind(this));
-    this.messageHandlers.set('GET_API_STATUS', this.handleGetAPIStatus.bind(this));
-    this.messageHandlers.set('EXTRACT_DATA_FROM_URL', this.handleExtractDataFromUrl.bind(this));
-    
-    // API Key Management
-    this.messageHandlers.set('SAVE_API_KEY', this.handleSaveAPIKey.bind(this));
-    this.messageHandlers.set('GET_API_KEYS', this.handleGetAPIKeys.bind(this));
-    this.messageHandlers.set('DELETE_API_KEY', this.handleDeleteAPIKey.bind(this));
-    this.messageHandlers.set('TOGGLE_API_ENABLED', this.handleToggleAPIEnabled.bind(this));
-    
-    // Real-time UI updates
-    this.messageHandlers.set('TAB_PROCESSED', this.handleTabProcessed.bind(this));
-    
-    // Category management
-    this.messageHandlers.set('GET_CATEGORY_STATS', this.handleGetCategoryStats.bind(this));
-    
-    // Archive management
-    this.messageHandlers.set('SAVE_CONVERSATION_TO_ARCHIVE', this.handleSaveConversationToArchive.bind(this));
-    this.messageHandlers.set('GET_ARCHIVE_CONVERSATIONS', this.handleGetArchiveConversations.bind(this));
-    this.messageHandlers.set('DELETE_ARCHIVE_CONVERSATION', this.handleDeleteArchiveConversation.bind(this));
     
     // Data management
     this.messageHandlers.set('DATA_DELETE_SUMMARIES', this.handleDataDeleteSummaries.bind(this));
     this.messageHandlers.set('DATA_DELETE_CONVERSATIONS', this.handleDataDeleteConversations.bind(this));
-    this.messageHandlers.set('DATA_RESET_SETTINGS', this.handleDataResetSettings.bind(this));
     this.messageHandlers.set('DATA_CLEAR_ALL', this.handleDataClearAll.bind(this));
-    this.messageHandlers.set('DATA_EXPORT_DATA', this.handleDataExportData.bind(this));
     this.messageHandlers.set('DATA_GET_STATS', this.handleDataGetStats.bind(this));
+    
+    // Cache management
     this.messageHandlers.set('CLEAR_CACHE', this.handleClearCache.bind(this));
+    
+    // AI handlers (placeholder implementations)
+    this.messageHandlers.set('ANSWER_QUESTION', this.handleAnswerQuestion.bind(this));
+    this.messageHandlers.set('SUMMARIZE_TEXT', this.handleSummarizeText.bind(this));
+    
+    // Processing handlers
+    this.messageHandlers.set('PROCESS_ALL_TABS', this.handleProcessAllTabs.bind(this));
+    
+    // API management handlers
+    this.messageHandlers.set('GET_API_STATUS', this.handleGetAPIStatus.bind(this));
+    this.messageHandlers.set('INITIALIZE_APIS', this.handleInitializeAPIs.bind(this));
+    
+    console.log('[TabSense] Message handlers set up:', this.messageHandlers.size);
   }
 
-  /**
-   * Setup Chrome extension event listeners
-   */
-  setupChromeListeners() {
-    // Handle messages from content scripts and UI
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      this.handleMessage(message, sender, sendResponse);
-      return true; // Keep message channel open for async responses
-    });
-
-    // Handle extension installation/update
-    chrome.runtime.onInstalled.addListener((details) => {
-      this.handleInstallation(details);
-    });
-
-    // Handle extension startup
-    chrome.runtime.onStartup.addListener(() => {
-      this.handleStartup();
-    });
-
-    // Handle tab updates (for future milestones)
-    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      this.handleTabUpdate(tabId, changeInfo, tab);
-    });
-
-    // Handle extension icon click - open side panel
-    chrome.action.onClicked.addListener((tab) => {
-      console.log('[TabSense] Extension icon clicked!', tab);
-      this.openSidebar(tab);
-    });
-
-  }
-
-  /**
-   * Handle incoming messages
-   * @param {Object} message - Message object
-   * @param {Object} sender - Sender information
-   * @param {Function} sendResponse - Response function
-   */
-  async handleMessage(message, sender, sendResponse) {
+  async initialize() {
+    console.log('[TabSense] Starting initialization...');
+    
+    // Clear any stale tab data on startup
     try {
-      const { action, payload } = message;
-      
-      console.log('[TabSense] Received message:', action, 'from:', sender.tab?.url || 'unknown');
-      console.log('[TabSense] Message payload:', payload);
-      log('info', `Received message: ${action}`, { sender: sender.tab?.url, payload });
+      const result = await chrome.storage.local.get(['multi_tab_collection']);
+      if (result.multi_tab_collection && result.multi_tab_collection.length > 0) {
+        console.log('[TabSense] Found', result.multi_tab_collection.length, 'old tabs, keeping them');
+      }
+    } catch (error) {
+      console.log('[TabSense] Error checking old tabs:', error.message);
+    }
+    
+    // Setup Chrome listeners
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      const action = message.action || 'UNKNOWN';
+      console.log('[TabSense] Received message:', action);
       
       const handler = this.messageHandlers.get(action);
-      console.log('[TabSense] Handler lookup result:', handler ? 'found' : 'not found');
-      console.log('[TabSense] Available handlers:', Array.from(this.messageHandlers.keys()));
-      
       if (handler) {
-        console.log('[TabSense] Found handler for:', action);
-        console.log('[TabSense] Calling handler...');
-        const result = await handler(payload, sender);
-        console.log('[TabSense] Handler result for', action, ':', result);
-        log('info', `Handler result for ${action}`, result);
-        sendResponse({ success: true, data: result });
+        const result = handler(message.payload || {}, sender);
+        Promise.resolve(result).then(sendResponse);
+        return true;
       } else {
-        console.warn('[TabSense] Unknown message action:', action);
-        console.log('[TabSense] Available handlers:', Array.from(this.messageHandlers.keys()));
-        log('warn', `Unknown message action: ${action}`, { 
-          availableHandlers: Array.from(this.messageHandlers.keys()),
-          messageHandlersCount: this.messageHandlers.size
-        });
-        sendResponse({ success: false, error: `Unknown action: ${action}` });
+        console.warn('[TabSense] No handler for:', action);
+        sendResponse({ error: `No handler for ${action}` });
       }
-      
-    } catch (error) {
-      console.error('[TabSense] Message handling failed:', error);
-      console.error('[TabSense] Error details:', error.message, error.stack);
-      log('error', 'Message handling failed', error);
-      sendResponse({ success: false, error: error.message });
-    }
-  }
-
-  /**
-   * Broadcast message to all connected contexts
-   * @param {Object} message - Message to broadcast
-   */
-  broadcastMessage(message) {
-    chrome.runtime.sendMessage(message).catch(error => {
-      // Ignore errors when no listeners are available
-      log('debug', 'No listeners for broadcast message', error.message);
     });
+
+    // Extension icon click
+    chrome.action.onClicked.addListener((tab) => {
+      console.log('[TabSense] Extension icon clicked');
+      chrome.sidePanel.open({ tabId: tab.id });
+    });
+
+    this.initialized = true;
+    console.log('[TabSense] Service worker initialized');
   }
 
-  // ==================== MESSAGE HANDLERS ====================
-
-  /**
-   * Handle ping message (for testing connectivity)
-   */
   async handlePing(payload, sender) {
-    console.log('[TabSense] PING received from:', sender.tab?.url || 'unknown');
-    log('info', 'PING received', { sender: sender.tab?.url, initialized: this.initialized });
-    
-    // Always respond to PING, even if not fully initialized
-    const response = {
-      pong: true, // Always respond to show service worker is alive
-      initialized: this.initialized,
-      timestamp: Date.now(),
-      sender: sender.tab?.url || 'unknown',
-      status: this.initialized ? 'ready' : 'initializing',
-      messageHandlers: this.messageHandlers.size,
-      version: '1.0.0'
+    console.log('[TabSense] PING received');
+    return { 
+      success: true,
+      data: {
+        pong: true, 
+        timestamp: Date.now(),
+        initialized: this.initialized 
+      }
     };
-    
-    console.log('[TabSense] PING response:', response);
-    log('info', 'PING response', response);
-    return response;
   }
 
-  /**
-   * Handle get status message
-   */
   async handleGetStatus(payload, sender) {
+    console.log('[TabSense] GET_STATUS received');
     return {
-      initialized: this.initialized,
-      config: configManager.getAll(),
-      credentials: 'Credential manager ready',
-      timestamp: Date.now()
+      success: true,
+      data: {
+        status: 'ready',
+        initialized: this.initialized,
+        handlers: Array.from(this.messageHandlers.keys())
+      }
     };
-  }
-
-  /**
-   * Handle get config message
-   */
-  async handleGetConfig(payload, sender) {
-    return configManager.getAll();
-  }
-
-  /**
-   * Handle update config message
-   */
-  async handleUpdateConfig(payload, sender) {
-    const { key, value } = payload;
-    await configManager.set(key, value);
-    return { success: true, updated: { key, value } };
-  }
-
-  /**
-   * Handle summarize text message (Milestone 3)
-   */
-  async handleSummarizeText(payload, sender) {
-    log('info', 'Summarize text requested', { sender: sender.tab?.url });
-    
-    try {
-      const { text, options = {} } = payload;
-      
-      if (!text || text.length === 0) {
-        throw new Error('No text provided for summarization');
-      }
-      
-      log('info', 'Starting AI summarization', { 
-        textLength: text.length,
-        options,
-        aiAdapterInitialized: !!this.aiAdapter
-      });
-      
-      // Check if AI adapter is properly initialized
-      if (!this.aiAdapter) {
-        throw new Error('AI adapter not initialized');
-      }
-      
-      const summary = await this.aiAdapter.summarizeText(text, options);
-      
-      log('info', 'AI summarization completed', { 
-        summaryLength: summary.length,
-        summary: summary.substring(0, 100) + '...' // First 100 chars for debugging
-      });
-      
-      return {
-        success: true,
-        data: {
-          summary,
-          originalLength: text.length,
-          summaryLength: summary.length,
-          timestamp: Date.now()
-        }
-      };
-      
-    } catch (error) {
-      log('error', 'AI summarization failed', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Handle answer question message (Milestone 3)
-   */
-  async handleAnswerQuestion(payload, sender) {
-    log('info', 'Answer question requested', { sender: sender.tab?.url });
-    
-    try {
-      const { question, context = [] } = payload;
-      
-      if (!question || question.length === 0) {
-        throw new Error('No question provided');
-      }
-      
-      log('info', 'Starting AI Q&A', { 
-        questionLength: question.length,
-        contextCount: context.length 
-      });
-      
-      const answer = await this.aiAdapter.answerQuestion(question, context);
-      
-      log('info', 'AI Q&A completed', { 
-        answerLength: answer.length 
-      });
-      
-      return {
-        success: true,
-        data: {
-          answer,
-          question,
-          contextCount: context.length,
-          timestamp: Date.now()
-        }
-      };
-      
-    } catch (error) {
-      log('error', 'AI Q&A failed', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Handle get tabs message (placeholder for Milestone 2)
-   */
-  async handleGetTabs(payload, sender) {
-    log('info', 'Get tabs requested (placeholder)');
-    return {
-      message: 'Tab management will be implemented in Milestone 2',
-      placeholder: true
-    };
-  }
-
-  /**
-   * Handle process tab message (placeholder for Milestone 2)
-   */
-  async handleProcessTab(payload, sender) {
-    try {
-      log('info', 'Processing tab with adaptive summarization', { sender: sender.tab?.url });
-      
-      const { url, title, content, metadata = {} } = payload;
-      
-      if (!url || !content) {
-        throw new Error('URL and content are required for tab processing');
-      }
-
-      // Initialize adaptive summarizer if needed
-      await this.initializeAdaptiveSummarizer();
-      
-      // Prepare page data for adaptive summarization
-      const pageData = {
-        url,
-        title: title || 'Untitled',
-        content,
-        metadata: {
-          ...metadata,
-          extractedAt: new Date().toISOString(),
-          tabId: sender.tab?.id
-        }
-      };
-
-      // Enhance context with external data
-      let enhancedContext = null;
-      try {
-        const contextResult = await this.contextEnhancer.getExternalContext(pageData, 'comprehensive');
-        enhancedContext = contextResult;
-        log('info', 'Context enhanced successfully', { sources: enhancedContext.sources?.length || 0 });
-      } catch (contextError) {
-        log('warn', 'Context enhancement failed, proceeding without external context', contextError);
-      }
-
-      // Use adaptive summarization if available, otherwise fallback to basic
-      let summaryResult;
-      if (this.adaptiveSummarizer) {
-        // Add enhanced context to page data for better summarization
-        const enhancedPageData = {
-          ...pageData,
-          enhancedContext: enhancedContext
-        };
-        summaryResult = await this.adaptiveSummarizer.summarize(enhancedPageData, 'medium');
-      } else {
-        // Fallback to basic AI summarization
-        summaryResult = await this.handleSummarizeText({ text: content });
-      }
-
-      // Enhanced categorization
-      const categorization = await this.enhancedCategorizer.categorizeTab({
-        url: url,
-        title: title || '',
-        content: content,
-        metadata: metadata || {}
-      });
-
-      // Store processed tab data
-      const processedData = {
-        id: `tab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        url,
-        title: title || 'Untitled',
-        content,
-        summary: summaryResult.success ? summaryResult.data.summary : 'Summary generation failed',
-        keyPoints: summaryResult.success ? summaryResult.data.keyPoints || [] : [],
-        analyzing: false,
-        category: categorization.name,
-        categoryLabel: categorization.label,
-        categoryIcon: categorization.icon,
-        categoryColor: categorization.color,
-        categoryConfidence: categorization.confidence,
-        categoryMethod: categorization.method,
-        categoryReasoning: categorization.reasoning,
-        metadata: {
-          ...metadata,
-          processedAt: new Date().toISOString(),
-          summaryMethod: this.adaptiveSummarizer ? 'adaptive' : 'basic',
-          cached: summaryResult.success ? summaryResult.data.cached : false,
-          contextEnhanced: !!enhancedContext,
-          contextSources: enhancedContext?.sources || []
-        }
-      };
-
-      // Store in multi-tab collection
-      const collectionResult = await chrome.storage.local.get(['multi_tab_collection']);
-      const collection = collectionResult.multi_tab_collection || { tabs: [] };
-      
-      // Remove existing tab with same URL if it exists
-      collection.tabs = collection.tabs.filter(tab => tab.url !== url);
-      collection.tabs.push(processedData);
-      
-      await chrome.storage.local.set({ multi_tab_collection: collection });
-
-      log('info', 'Tab processed successfully', { 
-        url, 
-        category: categorization.name,
-        summaryLength: processedData.summary.length 
-      });
-
-      return {
-        success: true,
-        data: {
-          processedData,
-          categorization,
-          summaryMethod: this.adaptiveSummarizer ? 'adaptive' : 'basic',
-          contextEnhanced: !!enhancedContext,
-          contextSources: enhancedContext?.sources || []
-        }
-      };
-    } catch (error) {
-      log('error', 'Tab processing failed', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  // ==================== YOUTUBE-SPECIFIC HANDLERS (PHASE 1.2) ====================
-
-  /**
-   * Handle YouTube data extraction request
-   */
-  async handleExtractYouTubeData(payload, sender) {
-    log('info', 'YouTube data extraction requested', { sender: sender.tab?.url });
-
-    try {
-      // Check if we're on a YouTube video page
-      const isYouTubeVideo = sender.tab?.url && (
-        sender.tab.url.includes('youtube.com/watch') || 
-        sender.tab.url.includes('youtu.be/')
-      );
-
-      if (!isYouTubeVideo) {
-        return {
-          success: false,
-          error: 'Not on a YouTube video page',
-          data: null
-        };
-      }
-
-      // Try using the new API system first
-      if (this.apiInitialized) {
-        try {
-          log('info', 'Using YouTube API for extraction...');
-          const data = await unifiedAPI.extractDataFromUrl(sender.tab.url);
-          
-          if (data && data.type === 'youtube') {
-            log('info', 'YouTube data extracted via API', {
-              videoTitle: data.video?.title?.substring(0, 50),
-              commentCount: data.comments?.length || 0,
-              channel: data.video?.channelTitle
-            });
-
-            return {
-              success: true,
-              data: data,
-              message: 'YouTube data extracted via API'
-            };
-          }
-        } catch (apiError) {
-          log('warn', 'YouTube API extraction failed, falling back to content script', apiError);
-        }
-      }
-
-      // Fallback to content script extraction
-      log('info', 'Using content script for YouTube extraction...');
-      
-      try {
-        log('info', 'Sending EXTRACT_PAGE_DATA message to tab:', sender.tab.id, 'URL:', sender.tab.url);
-        const response = await chrome.tabs.sendMessage(sender.tab.id, {
-          action: 'EXTRACT_PAGE_DATA'
-        });
-        
-        log('info', 'Received response from content script', { 
-          success: response?.success,
-          hasData: !!response?.data 
-        });
-
-        if (response && response.success && response.data?.pageData) {
-          const youtubeData = response.data.pageData;
-          log('info', 'YouTube data extracted successfully', {
-            videoTitle: youtubeData.video?.title?.substring(0, 50),
-            commentCount: youtubeData.comments?.length || 0,
-            hasTranscript: !!youtubeData.video?.transcript
-          });
-
-          return {
-            success: true,
-            data: youtubeData,
-            message: 'YouTube data extracted successfully'
-          };
-        } else {
-          log('error', 'YouTube extraction failed in content script', response);
-          return {
-            success: false,
-            error: response?.error || 'Failed to extract YouTube data',
-            data: null
-          };
-        }
-      } catch (error) {
-        log('error', 'Failed to communicate with content script', error);
-        return {
-          success: false,
-          error: 'Content script not available or not responding',
-          data: null
-        };
-      }
-    } catch (error) {
-      log('error', 'YouTube extraction failed', error);
-      return {
-        success: false,
-        error: error.message,
-        data: null
-      };
-    }
-  }
-
-  // ==================== PAGE DATA EXTRACTION HANDLERS (MILESTONE 2) ====================
-
-  /**
-   * Handle page data extracted message from content script
-   */
-  async handlePageDataExtracted(payload, sender) {
-    log('info', 'Page data received from content script', {
-      url: payload.url,
-      title: payload.title,
-      contentLength: payload.content?.length || 0,
-      sender: sender.tab?.url
-    });
-
-    try {
-      // Store page data for later use
-      await this.storePageData(payload);
-      
-      // Broadcast to other components that new page data is available
-      this.broadcastMessage({
-        action: 'PAGE_DATA_AVAILABLE',
-        payload: {
-          url: payload.url,
-          title: payload.title,
-          timestamp: Date.now()
-        }
-      });
-
-      return {
-        success: true,
-        message: 'Page data stored successfully',
-        data: {
-          url: payload.url,
-          title: payload.title,
-          contentLength: payload.content?.length || 0
-        }
-      };
-
-    } catch (error) {
-      log('error', 'Failed to store page data', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Handle extract page data request
-   */
-  async handleExtractPageData(payload, sender) {
-    log('info', 'Extract page data requested', { sender: sender.tab?.url });
-
-    try {
-      // If message comes from popup, get the active tab
-      let tabId = sender.tab?.id;
-      let tabUrl = sender.tab?.url;
-      
-      if (!tabId) {
-        // Message from popup - get active tab
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tabs.length === 0) {
-          throw new Error('No active tab found');
-        }
-        tabId = tabs[0].id;
-        tabUrl = tabs[0].url;
-        log('info', 'Using active tab for extraction', { tabId, url: tabUrl });
-      }
-
-      // Check if this is a YouTube video page
-      const isYouTubeVideo = tabUrl && (
-        tabUrl.includes('youtube.com/watch') || 
-        tabUrl.includes('youtu.be/')
-      );
-
-      if (isYouTubeVideo) {
-        log('info', 'Detected YouTube video page, using YouTube-specific extraction');
-        
-        // Use YouTube-specific extraction
-        const youtubeResponse = await this.handleExtractYouTubeData(payload, sender);
-        if (youtubeResponse.success) {
-          return {
-            success: true,
-            data: {
-              ...youtubeResponse.data,
-              type: 'youtube',
-              url: tabUrl,
-              extractedAt: new Date().toISOString()
-            }
-          };
-        } else {
-          log('warn', 'YouTube extraction failed, falling back to standard extraction', youtubeResponse.error);
-        }
-      }
-
-      // Standard page extraction (fallback or non-YouTube pages)
-      let response;
-      try {
-        response = await chrome.tabs.sendMessage(tabId, {
-          action: 'EXTRACT_PAGE_DATA'
-        });
-      } catch (connectionError) {
-        log('warn', 'Content script not responding, attempting to inject', connectionError.message);
-        
-        // Try to inject content script
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            files: ['content.js']
-          });
-          
-          // Wait a moment for the script to initialize
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Try again
-          response = await chrome.tabs.sendMessage(tabId, {
-            action: 'EXTRACT_PAGE_DATA'
-          });
-          
-          log('info', 'Content script injected and responding');
-        } catch (injectionError) {
-          log('error', 'Failed to inject content script', injectionError);
-          throw new Error('Could not establish connection with content script');
-        }
-      }
-
-      if (response && response.success) {
-        log('info', 'Page data extraction successful');
-        
-        // Enhanced processing with backend lib functions
-        const enhancedPageData = await this.processPageData(response.data.pageData, tabUrl);
-        
-        // Store the enhanced page data
-        await this.storeTabData({
-          ...enhancedPageData,
-          url: tabUrl,
-          title: sender.tab?.title || response.data.pageData?.title,
-          extractedAt: new Date().toISOString()
-        });
-        
-        log('info', 'Enhanced page data stored successfully', { 
-          url: tabUrl,
-          qualityScore: enhancedPageData.qualityScore,
-          category: enhancedPageData.category
-        });
-        
-        return {
-          success: true,
-          data: enhancedPageData
-        };
-      } else {
-        throw new Error(response?.error || 'Page data extraction failed');
-      }
-
-    } catch (error) {
-      log('error', 'Failed to extract page data', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Process page data using enhanced backend functions
-   * @param {Object} rawPageData - Raw page data from content script
-   * @param {string} url - Page URL
-   * @returns {Object} Enhanced page data
-   */
-  async processPageData(rawPageData, url) {
-    try {
-      log('info', 'Processing page data with enhanced backend functions', { url });
-
-      // 1. URL validation and filtering
-      const isValidUrl = this.urlFilter.shouldProcessUrl(url, rawPageData.title || '');
-      if (!isValidUrl) {
-        log('warn', 'URL filtered out by URLFilter', { url, title: rawPageData.title });
-        throw new Error('URL does not meet processing criteria');
-      }
-
-      // 2. Content scoring and quality assessment
-      const qualityResult = this.contentScorer.score({
-        content: rawPageData.content || { sections: [] },
-        metadata: rawPageData.metadata || {},
-        stats: {
-          wordCount: this.contentScorer.getWordCount(rawPageData.content),
-          contentDensity: this.contentScorer.calculateContentDensity(rawPageData.content),
-          hasHeadings: this.contentScorer.hasHeadings(rawPageData.content)
-        }
-      });
-
-      // 3. Enhanced page categorization
-      const categorization = await this.enhancedCategorizer.categorizeTab({
-        url: url,
-        title: rawPageData.title || '',
-        content: rawPageData.content || '',
-        metadata: rawPageData.metadata || {}
-      });
-
-      // 4. Enhanced metadata processing
-      const enhancedMetadata = await this.contentScorer.processMetadata({
-        url: url,
-        title: rawPageData.title || '',
-        content: rawPageData.content || '',
-        metadata: rawPageData.metadata || {},
-        structure: rawPageData.structure || {}
-      });
-
-      // 5. Create enhanced page data object
-      const enhancedPageData = {
-        // Core data
-        url: url,
-        title: rawPageData.title || 'Untitled',
-        content: rawPageData.content || '',
-        
-        // Enhanced metadata
-        ...enhancedMetadata,
-        
-        // Quality and categorization
-        qualityScore: qualityResult.scores.overall,
-        qualityPassed: qualityResult.passed,
-        qualityReason: qualityResult.reason,
-        category: categorization.name,
-        categoryLabel: categorization.label,
-        categoryIcon: categorization.icon,
-        categoryColor: categorization.color,
-        categoryConfidence: categorization.confidence,
-        categoryMethod: categorization.method,
-        categoryReasoning: categorization.reasoning,
-        
-        // Processing metadata
-        processedAt: new Date().toISOString(),
-        processingVersion: '2.0'
-      };
-
-      log('info', 'Page data processing completed', {
-        url,
-        qualityScore: enhancedPageData.qualityScore,
-        category: enhancedPageData.category,
-        wordCount: enhancedPageData.wordCount
-      });
-
-      return enhancedPageData;
-    } catch (error) {
-      log('error', 'Failed to process page data', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle get page data request
-   */
-  async handleGetPageData(payload, sender) {
-    log('info', 'Get page data requested', { sender: sender.tab?.url });
-
-    try {
-      // If message comes from popup, get the active tab
-      let tabId = sender.tab?.id;
-      
-      if (!tabId) {
-        // Message from popup - get active tab
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tabs.length === 0) {
-          throw new Error('No active tab found');
-        }
-        tabId = tabs[0].id;
-        log('info', 'Using active tab for getting page data', { tabId, url: tabs[0].url });
-      }
-
-      // Send message to content script to get page data
-      const response = await chrome.tabs.sendMessage(tabId, {
-        action: 'GET_PAGE_DATA'
-      });
-
-      if (response && response.success) {
-        log('info', 'Page data retrieved successfully');
-        return {
-          success: true,
-          data: response.data
-        };
-      } else {
-        throw new Error(response?.error || 'Failed to get page data');
-      }
-
-    } catch (error) {
-      log('error', 'Failed to get page data', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Store page data for later use
-   * @param {Object} pageData - Page data to store
-   */
-  async storePageData(pageData) {
-    try {
-      const storageKey = `page_data_${pageData.url}`;
-      const dataToStore = {
-        ...pageData,
-        storedAt: Date.now()
-      };
-
-      await chrome.storage.local.set({ [storageKey]: dataToStore });
-      log('info', 'Page data stored successfully', { url: pageData.url });
-
-      // Also add to multi-tab collection
-      await this.addToMultiTabCollection(dataToStore);
-
-    } catch (error) {
-      log('error', 'Failed to store page data', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Add page data to multi-tab collection for cross-tab operations
-   * @param {Object} pageData - Page data to add to collection
-   */
-  async addToMultiTabCollection(pageData) {
-    try {
-      // Get existing collection
-      const result = await chrome.storage.local.get(['multi_tab_collection']);
-      let collection = result.multi_tab_collection || {
-        tabs: [],
-        lastUpdated: Date.now(),
-        totalContentLength: 0
-      };
-
-      // Check if this URL already exists in collection
-      const existingIndex = collection.tabs.findIndex(tab => tab.url === pageData.url);
-      
-      if (existingIndex >= 0) {
-        // Update existing tab data
-        collection.tabs[existingIndex] = pageData;
-        log('info', 'Updated existing tab in collection', { url: pageData.url });
-      } else {
-        // Add new tab to collection
-        collection.tabs.push(pageData);
-        log('info', 'Added new tab to collection', { url: pageData.url });
-      }
-
-      // Update collection metadata
-      collection.lastUpdated = Date.now();
-      collection.totalContentLength = collection.tabs.reduce((total, tab) => total + (tab.content?.length || 0), 0);
-      collection.tabCount = collection.tabs.length;
-
-      // Store updated collection
-      await chrome.storage.local.set({ multi_tab_collection: collection });
-      
-      log('info', 'Multi-tab collection updated', {
-        tabCount: collection.tabCount,
-        totalContentLength: collection.totalContentLength,
-        urls: collection.tabs.map(tab => tab.url)
-      });
-
-    } catch (error) {
-      log('error', 'Failed to add to multi-tab collection', error);
-    }
-  }
-
-  /**
-   * Get multi-tab collection for cross-tab operations
-   * @returns {Object} Multi-tab collection data
-   */
-  async getMultiTabCollection() {
-    try {
-      const result = await chrome.storage.local.get(['multi_tab_collection']);
-      return result.multi_tab_collection || {
-        tabs: [],
-        lastUpdated: Date.now(),
-        totalContentLength: 0,
-        tabCount: 0
-      };
-    } catch (error) {
-      log('error', 'Failed to get multi-tab collection', error);
-      return { tabs: [], lastUpdated: Date.now(), totalContentLength: 0, tabCount: 0 };
-    }
-  }
-
-  /**
-   * Clear multi-tab collection
-   */
-  async clearMultiTabCollection() {
-    try {
-      await chrome.storage.local.remove(['multi_tab_collection']);
-      log('info', 'Multi-tab collection cleared');
-    } catch (error) {
-      log('error', 'Failed to clear multi-tab collection', error);
-    }
-  }
-
-  // ==================== MULTI-TAB OPERATION HANDLERS ====================
-
-  /**
-   * Handle get multi-tab collection request
-   */
-  async handleGetMultiTabCollection(payload, sender) {
-    log('info', 'Get multi-tab collection requested', { sender: sender.tab?.url });
-
-    try {
-      const collection = await this.getMultiTabCollection();
-      
-      log('info', 'Multi-tab collection retrieved', {
-        tabCount: collection.tabCount,
-        totalContentLength: collection.totalContentLength
-      });
-
-      return {
-        success: true,
-        data: collection
-      };
-
-    } catch (error) {
-      log('error', 'Failed to get multi-tab collection', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Handle clear multi-tab collection request
-   */
-  async handleClearMultiTabCollection(payload, sender) {
-    log('info', 'Clear multi-tab collection requested', { sender: sender.tab?.url });
-
-    try {
-      await this.clearMultiTabCollection();
-      
-      return {
-        success: true,
-        data: { message: 'Multi-tab collection cleared successfully' }
-      };
-
-    } catch (error) {
-      log('error', 'Failed to clear multi-tab collection', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Handle process all tabs request - automatic background processing
-   */
-  async handleProcessAllTabs(payload, sender) {
-    log('info', 'Process all tabs requested - starting automatic background processing');
-
-    try {
-      // Get all open tabs
-      const tabs = await chrome.tabs.query({});
-      
-      // Filter out chrome:// and extension pages
-      const processableTabs = tabs.filter(tab => 
-        tab.url && 
-        !tab.url.startsWith('chrome://') && 
-        !tab.url.startsWith('chrome-extension://') &&
-        !tab.url.startsWith('moz-extension://') &&
-        !tab.url.startsWith('edge://') &&
-        !tab.url.startsWith('about:')
-      );
-
-      log('info', `Found ${processableTabs.length} processable tabs out of ${tabs.length} total tabs`);
-
-      // Process tabs in background (don't wait for completion)
-      this.processTabsInBackground(processableTabs);
-
-      return {
-        success: true,
-        data: {
-          message: 'Background processing started',
-          tabCount: processableTabs.length,
-          totalTabs: tabs.length
-        }
-      };
-
-    } catch (error) {
-      log('error', 'Failed to start background processing', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Process tabs in background without blocking the response
-   */
-  async processTabsInBackground(tabs) {
-    log('info', `Starting background processing of ${tabs.length} tabs`);
-    
-    let processedCount = 0;
-    let errorCount = 0;
-
-    for (const tab of tabs) {
-      try {
-        // Check if tab is already processed
-        const existingData = await this.getTabData(tab.id);
-        if (existingData && existingData.processedAt) {
-          log('debug', `Tab ${tab.id} already processed, skipping`);
-          continue;
-        }
-
-        log('info', `Processing tab ${tab.id}: ${tab.url}`);
-
-        // Extract page data
-        const extractionResult = await this.handleExtractPageData({}, { tab });
-        
-        if (extractionResult.success) {
-          processedCount++;
-          log('info', `Successfully processed tab ${tab.id}`);
-          
-          // Optional: Trigger summarization for high-quality content
-          if (extractionResult.data.qualityScore > 70) {
-            try {
-              await this.handleSummarizeText({
-                text: extractionResult.data.content,
-                options: { maxLength: 'short' }
-              }, { tab });
-              log('info', `Generated summary for tab ${tab.id}`);
-            } catch (summaryError) {
-              log('warn', `Summary generation failed for tab ${tab.id}`, summaryError);
-            }
-          }
-        } else {
-          errorCount++;
-          log('warn', `Failed to process tab ${tab.id}:`, extractionResult.error);
-        }
-
-        // Small delay to prevent overwhelming the system
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-      } catch (error) {
-        errorCount++;
-        log('error', `Error processing tab ${tab.id}`, error);
-      }
-    }
-
-    log('info', `Background processing completed: ${processedCount} processed, ${errorCount} errors`);
-  }
-
-  /**
-   * Handle get all tabs data request
-   */
-  async handleGetAllTabsData(payload, sender) {
-    log('info', 'Get all tabs data requested', { sender: sender.tab?.url });
-
-    try {
-      // Get all open tabs
-      const tabs = await chrome.tabs.query({});
-      
-      // Get data for each tab that has been processed
-      const tabsData = [];
-      for (const tab of tabs) {
-        try {
-          const storageKey = `page_data_${tab.url}`;
-          const result = await chrome.storage.local.get([storageKey]);
-          if (result[storageKey]) {
-            tabsData.push({
-              tabId: tab.id,
-              url: tab.url,
-              title: tab.title,
-              data: result[storageKey]
-            });
-          }
-        } catch (error) {
-          log('warn', `Failed to get data for tab ${tab.id}`, error);
-        }
-      }
-
-      log('info', 'All tabs data retrieved', {
-        totalTabs: tabs.length,
-        processedTabs: tabsData.length
-      });
-
-      return {
-        success: true,
-        data: {
-          totalTabs: tabs.length,
-          processedTabs: tabsData.length,
-          tabs: tabsData
-        }
-      };
-
-    } catch (error) {
-      log('error', 'Failed to get all tabs data', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  // ==================== CHROME EVENT HANDLERS ====================
-
-  /**
-   * Handle extension installation/update
-   */
-  async handleInstallation(details) {
-    log('info', 'Extension installed/updated', details);
-    
-    if (details.reason === 'install') {
-      // First time installation
-      await this.handleFirstInstall();
-    } else if (details.reason === 'update') {
-      // Extension update
-      await this.handleUpdate(details.previousVersion);
-    }
-  }
-
-  /**
-   * Handle extension startup
-   */
-  async handleStartup() {
-    log('info', 'Extension startup');
-    await this.initialize();
-  }
-
-  /**
-   * Handle first installation
-   */
-  async handleFirstInstall() {
-    log('info', 'First time installation - setting up defaults');
-    
-    // Set default configuration
-    await configManager.reset();
-    
-    // Initialize with default settings
-    await this.initialize();
-  }
-
-  /**
-   * Handle extension update
-   */
-  async handleUpdate(previousVersion) {
-    log('info', `Extension updated from ${previousVersion}`);
-    
-    // Re-initialize after update
-    await this.initialize();
-  }
-
-  /**
-   * Handle tab update (placeholder for future milestones)
-   */
-  async handleTabUpdate(tabId, changeInfo, tab) {
-    // Only process when tab is complete and has a valid URL
-    if (changeInfo.status !== 'complete' || !tab.url || tab.url.startsWith('chrome://')) {
-      return;
-    }
-
-    // Enhanced URL filtering
-    if (!this.urlFilter.shouldProcess(tab.url, tab.title)) {
-      log('debug', 'Tab filtered out by URL filter', { tabId, url: tab.url, title: tab.title });
-      return;
-    }
-
-    // Check for duplicate processing
-    if (this.processingTabs.has(tabId)) {
-      log('debug', 'Tab already being processed', { tabId, url: tab.url });
-      return;
-    }
-
-    log('debug', 'Tab updated', { tabId, changeInfo, url: tab.url });
-
-    try {
-      // Check if this is a YouTube video page
-      const isYouTubeVideo = tab.url && (
-        tab.url.includes('youtube.com/watch') || 
-        tab.url.includes('youtu.be/')
-      );
-
-      if (isYouTubeVideo) {
-        log('info', 'Detected YouTube video page, processing...', { url: tab.url });
-        
-        // Process YouTube page
-        await this.processYouTubeTab(tabId, tab);
-      } else {
-        // Process regular page
-        await this.processRegularTab(tabId, tab);
-      }
-    } catch (error) {
-      log('error', 'Failed to process tab update', error);
-    }
-  }
-
-  /**
-   * Process YouTube tab
-   */
-  async processYouTubeTab(tabId, tab) {
-    try {
-      // Prevent duplicate processing
-      if (this.processingTabs.has(tabId)) {
-        log('debug', 'YouTube tab already being processed', { tabId, url: tab.url });
-        return;
-      }
-      
-      this.processingTabs.add(tabId);
-      log('info', 'Processing YouTube tab', { tabId, url: tab.url });
-      
-      // Wait a bit for the page to fully load
-      log('info', 'Waiting for YouTube page to load...', { url: tab.url });
-      await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second delay
-      
-      // Extract YouTube data
-      const youtubeResponse = await this.handleExtractYouTubeData({}, { tab });
-      
-      if (youtubeResponse.success) {
-        // Store in multi-tab collection
-        await this.storeTabData({
-          ...youtubeResponse.data,
-          type: 'youtube',
-          url: tab.url,
-          title: tab.title,
-          extractedAt: new Date().toISOString()
-        });
-        
-        log('info', 'YouTube tab processed and stored', { 
-          url: tab.url, 
-          title: youtubeResponse.data.video?.title?.substring(0, 50) 
-        });
-      }
-    } catch (error) {
-      log('error', 'Failed to process YouTube tab', error);
-    } finally {
-      // Remove from processing set
-      this.processingTabs.delete(tabId);
-    }
-  }
-
-  /**
-   * Process regular tab
-   */
-  async processRegularTab(tabId, tab) {
-    try {
-      // Prevent duplicate processing
-      if (this.processingTabs.has(tabId)) {
-        log('debug', 'Tab already being processed', { tabId, url: tab.url });
-        return;
-      }
-      
-      this.processingTabs.add(tabId);
-      log('info', 'Processing regular tab automatically', { tabId, url: tab.url });
-      
-      // Wait a bit for the page to fully load
-      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
-      
-      // Use the same enhanced processing as manual refresh
-      const extractionResult = await this.handleExtractPageData({}, { tab });
-      
-      if (extractionResult.success) {
-        log('info', 'Regular tab processed successfully', { 
-          url: tab.url, 
-          title: tab.title?.substring(0, 50),
-          qualityScore: extractionResult.data.qualityScore
-        });
-        
-        // Notify sidebar of new processed tab
-        await this.notifySidebarOfNewTab(extractionResult.data, tab);
-        
-        // Optional: Trigger summarization for high-quality content
-        if (extractionResult.data.qualityScore > 70) {
-          try {
-            await this.handleSummarizeText({
-              text: extractionResult.data.content,
-              options: { maxLength: 'short' }
-            }, { tab });
-            log('info', `Generated summary for tab ${tabId}`);
-          } catch (summaryError) {
-            log('warn', `Summary generation failed for tab ${tabId}`, summaryError);
-          }
-        }
-      } else {
-        log('warn', 'Regular tab processing failed', { 
-          url: tab.url, 
-          error: extractionResult.error 
-        });
-      }
-    } catch (error) {
-      log('error', 'Failed to process regular tab', error);
-    } finally {
-      this.processingTabs.delete(tabId);
-    }
-  }
-
-  /**
-   * Handle tab processed notification (for real-time UI updates)
-   */
-  async handleTabProcessed(payload, sender) {
-    log('info', 'Tab processed notification received', payload.data);
-    
-    // This is just a notification, no response needed
-    return { success: true, message: 'Tab processed notification received' };
-  }
-
-  /**
-   * Notify sidebar of new processed tab
-   */
-  async notifySidebarOfNewTab(processedData, tab) {
-    try {
-      // Send message to sidebar to update UI
-      await chrome.runtime.sendMessage({
-        action: 'TAB_PROCESSED',
-        data: {
-          tabId: tab.id,
-          url: tab.url,
-          title: tab.title,
-          processedData: processedData,
-          timestamp: new Date().toISOString()
-        }
-      });
-      
-      log('info', 'Notified sidebar of new processed tab', { 
-        url: tab.url, 
-        title: tab.title?.substring(0, 30) 
-      });
-    } catch (error) {
-      log('debug', 'Failed to notify sidebar (sidebar may not be open)', error);
-    }
-  }
-
-  /**
-   * Store tab data in multi-tab collection
-   */
-  async storeTabData(tabData) {
-    try {
-      const collection = await this.getMultiTabCollection();
-      
-      // Check if tab already exists (by URL)
-      const existingIndex = collection.tabs.findIndex(tab => tab.url === tabData.url);
-      
-      if (existingIndex >= 0) {
-        // Update existing tab
-        collection.tabs[existingIndex] = tabData;
-        log('debug', 'Updated existing tab data', { url: tabData.url });
-      } else {
-        // Add new tab
-        collection.tabs.push(tabData);
-        collection.tabCount = collection.tabs.length;
-        log('debug', 'Added new tab data', { url: tabData.url });
-      }
-      
-      // Update metadata
-      collection.lastUpdated = Date.now();
-      collection.totalContentLength = collection.tabs.reduce((total, tab) => 
-        total + (tab.content?.length || 0), 0
-      );
-      
-      // Store updated collection
-      await chrome.storage.local.set({ multi_tab_collection: collection });
-      
-      log('info', 'Tab data stored successfully', { 
-        tabCount: collection.tabCount,
-        totalLength: collection.totalContentLength 
-      });
-    } catch (error) {
-      log('error', 'Failed to store tab data', error);
-    }
-  }
-
-  /**
-   * Open the sidebar when extension icon is clicked
-   */
-  async openSidebar(tab) {
-    try {
-      log('info', 'Opening sidebar...');
-      
-      // Try to open the sidebar panel directly
-      // Chrome should use the sidebar_action from manifest
-      await chrome.sidePanel.open({ tabId: tab.id });
-      
-      log('info', 'Sidebar opened successfully');
-    } catch (error) {
-      log('error', 'Failed to open sidebar', error);
-      
-      // Fallback: try to open without tabId
-      try {
-        log('info', 'Trying fallback method...');
-        await chrome.sidePanel.open({});
-        log('info', 'Sidebar opened with fallback method');
-      } catch (fallbackError) {
-        log('error', 'Fallback method also failed', fallbackError);
-      }
-    }
-  }
-
-  /**
-   * Handle get category statistics
-   */
-  async handleGetCategoryStats(payload, sender) {
-    try {
-      log('info', 'Getting category statistics');
-      
-      // Get all tabs from multi-tab collection
-      const collectionResult = await chrome.storage.local.get(['multi_tab_collection']);
-      const collection = collectionResult.multi_tab_collection || { tabs: [] };
-      
-      // Get category statistics using enhanced categorizer
-      const stats = this.enhancedCategorizer.getCategoryStats(collection.tabs);
-      
-      return {
-        success: true,
-        data: {
-          stats,
-          totalTabs: collection.tabs.length,
-          categories: this.enhancedCategorizer.getUICategories()
-        }
-      };
-    } catch (error) {
-      log('error', 'Failed to get category statistics', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Handle archive conversation management
-   */
-  async handleSaveConversationToArchive(payload, sender) {
-    try {
-      log('info', 'Saving conversation to archive');
-      const { title, messages } = payload;
-      
-      const conversation = {
-        id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        title,
-        messages,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      
-      // Get existing archive
-      const archiveResult = await chrome.storage.local.get(['conversation_archive']);
-      const archive = archiveResult.conversation_archive || [];
-      
-      // Add new conversation
-      archive.push(conversation);
-      
-      // Save back to storage
-      await chrome.storage.local.set({ conversation_archive: archive });
-      
-      return {
-        success: true,
-        data: { conversationId: conversation.id }
-      };
-    } catch (error) {
-      log('error', 'Failed to save conversation to archive', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
   }
 
   async handleGetArchiveConversations(payload, sender) {
+    console.log('[TabSense] GET_ARCHIVE_CONVERSATIONS received');
     try {
-      log('info', 'Getting archive conversations');
-      const archiveResult = await chrome.storage.local.get(['conversation_archive']);
-      const archive = archiveResult.conversation_archive || [];
-      
-      return {
-        success: true,
-        data: { conversations: archive }
-      };
+      const result = await chrome.storage.local.get(['archive_conversations']);
+      const conversations = result.archive_conversations || [];
+      console.log('[TabSense] Found conversations:', conversations.length);
+      return { success: true, data: { conversations } };
     } catch (error) {
-      log('error', 'Failed to get archive conversations', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('[TabSense] Error getting conversations:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async handleSaveConversationToArchive(payload, sender) {
+    console.log('[TabSense] SAVE_CONVERSATION_TO_ARCHIVE received');
+    try {
+      const result = await chrome.storage.local.get(['archive_conversations']);
+      const conversations = result.archive_conversations || [];
+      conversations.unshift(payload);
+      await chrome.storage.local.set({ archive_conversations: conversations });
+      return { success: true };
+    } catch (error) {
+      console.error('[TabSense] Error saving conversation:', error);
+      return { success: false, error: error.message };
     }
   }
 
   async handleDeleteArchiveConversation(payload, sender) {
+    console.log('[TabSense] DELETE_ARCHIVE_CONVERSATION received');
     try {
-      log('info', 'Deleting archive conversation');
-      const { conversationId } = payload;
-      
-      // Get existing archive
-      const archiveResult = await chrome.storage.local.get(['conversation_archive']);
-      const archive = archiveResult.conversation_archive || [];
-      
-      // Remove conversation
-      const updatedArchive = archive.filter(conv => conv.id !== conversationId);
-      
-      // Save back to storage
-      await chrome.storage.local.set({ conversation_archive: updatedArchive });
-      
-      return {
-        success: true,
-        data: { deleted: true }
-      };
+      const { id } = payload || {};
+      const result = await chrome.storage.local.get(['archive_conversations']);
+      const conversations = (result.archive_conversations || []).filter(c => c.id !== id);
+      await chrome.storage.local.set({ archive_conversations: conversations });
+      return { success: true };
     } catch (error) {
-      log('error', 'Failed to delete archive conversation', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('[TabSense] Error deleting conversation:', error);
+      return { success: false, error: error.message };
     }
   }
 
-  /**
-   * Handle data management operations
-   */
-  async handleDataDeleteSummaries(payload, sender) {
+  async handleGetMultiTabCollection(payload, sender) {
+    console.log('[TabSense] GET_MULTI_TAB_COLLECTION received');
     try {
-      log('info', 'Deleting all summaries');
-      
-      // Clear multi-tab collection (contains summaries)
-      await chrome.storage.local.remove(['multi_tab_collection']);
-      
-      // Clear any cached summaries
-      await chrome.storage.local.remove(['cached_summaries']);
-      
-      return {
-        success: true,
-        data: { deleted: true }
-      };
+      const result = await chrome.storage.local.get(['multi_tab_collection']);
+      const collection = result.multi_tab_collection || [];
+      console.log('[TabSense] Retrieved multi_tab_collection:', collection.length, 'items');
+      console.log('[TabSense] Collection data:', collection);
+      // Return with 'tabs' key that sidebar expects
+      return { success: true, data: { tabs: collection } };
     } catch (error) {
-      log('error', 'Failed to delete summaries', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('[TabSense] Error getting collection:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async handleClearMultiTabCollection(payload, sender) {
+    console.log('[TabSense] CLEAR_MULTI_TAB_COLLECTION received');
+    try {
+      await chrome.storage.local.remove(['multi_tab_collection']);
+      return { success: true };
+    } catch (error) {
+      console.error('[TabSense] Error clearing collection:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async handleGetAllTabsData(payload, sender) {
+    console.log('[TabSense] GET_ALL_TABS_DATA received');
+    try {
+      const result = await chrome.storage.local.get(['processed_tabs']);
+      return { success: true, data: { tabs: result.processed_tabs || [] } };
+    } catch (error) {
+      console.error('[TabSense] Error getting tabs data:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async handleDataDeleteSummaries(payload, sender) {
+    console.log('[TabSense] DATA_DELETE_SUMMARIES received');
+    try {
+      await chrome.storage.local.remove(['tab_summaries']);
+      return { success: true };
+    } catch (error) {
+      console.error('[TabSense] Error deleting summaries:', error);
+      return { success: false, error: error.message };
     }
   }
 
   async handleDataDeleteConversations(payload, sender) {
+    console.log('[TabSense] DATA_DELETE_CONVERSATIONS received');
     try {
-      log('info', 'Deleting all conversations');
-      
-      // Clear conversation archive
-      await chrome.storage.local.remove(['conversation_archive']);
-      
-      return {
-        success: true,
-        data: { deleted: true }
-      };
+      await chrome.storage.local.remove(['archive_conversations']);
+      return { success: true };
     } catch (error) {
-      log('error', 'Failed to delete conversations', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  async handleDataResetSettings(payload, sender) {
-    try {
-      log('info', 'Resetting all settings');
-      
-      // Clear settings but keep essential ones
-      const essentialKeys = ['api_keys', 'enabled_apis'];
-      const allKeys = await chrome.storage.local.get(null);
-      
-      const keysToRemove = Object.keys(allKeys).filter(key => 
-        !essentialKeys.includes(key) && 
-        !key.startsWith('multi_tab_') && 
-        !key.startsWith('conversation_') &&
-        !key.startsWith('cached_')
-      );
-      
-      if (keysToRemove.length > 0) {
-        await chrome.storage.local.remove(keysToRemove);
-      }
-      
-      return {
-        success: true,
-        data: { reset: true }
-      };
-    } catch (error) {
-      log('error', 'Failed to reset settings', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('[TabSense] Error deleting conversations:', error);
+      return { success: false, error: error.message };
     }
   }
 
   async handleDataClearAll(payload, sender) {
+    console.log('[TabSense] DATA_CLEAR_ALL received');
     try {
-      log('info', 'Clearing all data');
-      
-      // Clear all storage
       await chrome.storage.local.clear();
-      
-      return {
-        success: true,
-        data: { cleared: true }
-      };
+      return { success: true };
     } catch (error) {
-      log('error', 'Failed to clear all data', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  async handleDataExportData(payload, sender) {
-    try {
-      log('info', 'Exporting all data');
-      
-      // Get all stored data
-      const allData = await chrome.storage.local.get(null);
-      
-      // Create export object
-      const exportData = {
-        timestamp: new Date().toISOString(),
-        version: '1.0',
-        data: allData
-      };
-      
-      return {
-        success: true,
-        data: { exportData }
-      };
-    } catch (error) {
-      log('error', 'Failed to export data', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('[TabSense] Error clearing data:', error);
+      return { success: false, error: error.message };
     }
   }
 
   async handleDataGetStats(payload, sender) {
+    console.log('[TabSense] DATA_GET_STATS received');
     try {
-      log('info', 'Getting data statistics');
-      
-      // Get all stored data
-      const allData = await chrome.storage.local.get(null);
-      
-      // Count different types of data
-      const stats = {
-        summaries: 0,
-        conversations: 0,
-        settings: 0,
-        totalSize: '0 KB'
-      };
-      
-      // Count summaries (from multi_tab_collection)
-      if (allData.multi_tab_collection?.tabs) {
-        stats.summaries = allData.multi_tab_collection.tabs.length;
-      }
-      
-      // Count conversations
-      if (allData.conversation_archive) {
-        stats.conversations = allData.conversation_archive.length;
-      }
-      
-      // Count settings (exclude data collections)
-      const settingsKeys = Object.keys(allData).filter(key => 
-        !key.startsWith('multi_tab_') && 
-        !key.startsWith('conversation_') &&
-        !key.startsWith('cached_')
-      );
-      stats.settings = settingsKeys.length;
-      
-      // Calculate total size (approximate)
-      const jsonString = JSON.stringify(allData);
-      const sizeInBytes = new Blob([jsonString]).size;
-      stats.totalSize = this.formatBytes(sizeInBytes);
+      const allData = await chrome.storage.local.get();
+      const dataSize = JSON.stringify(allData).length;
       
       return {
-        stats
+        success: true,
+        data: {
+          totalItems: Object.keys(allData).length,
+          totalSize: dataSize,
+          totalSizeFormatted: this.formatBytes(dataSize),
+          lastUpdated: new Date().toISOString()
+        }
       };
     } catch (error) {
-      log('error', 'Failed to get data statistics', error);
-      throw error; // Let the message handler handle the error wrapping
+      console.error('[TabSense] Error getting stats:', error);
+      return { success: false, error: error.message };
     }
   }
 
-  /**
-   * Format bytes to human readable string
-   */
+  async handleClearCache(payload, sender) {
+    console.log('[TabSense] CLEAR_CACHE received');
+    try {
+      await chrome.storage.local.remove(['cache', 'processed_tabs', 'tab_summaries']);
+      return { success: true };
+    } catch (error) {
+      console.error('[TabSense] Error clearing cache:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   formatBytes(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -1914,748 +307,219 @@ class TabSenseServiceWorker {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
-  /**
-   * Handle cache clear request
-   */
-  async handleClearCache(payload, sender) {
+  async handleAnswerQuestion(payload, sender) {
+    console.log('[TabSense] ANSWER_QUESTION received');
     try {
-      log('info', 'Clearing cache');
+      const { question } = payload || {};
       
-      // Clear cache using CachingManager
-      await this.cachingManager.clearCache();
+      // Try to forward to offscreen document for AI processing
+      try {
+        const response = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'ANSWER_QUESTION',
+          payload: { question }
+        });
+        
+        if (response && response.success) {
+          return {
+            success: true,
+            data: response.data
+          };
+        }
+      } catch (offscreenError) {
+        console.log('[TabSense] Offscreen not available, using placeholder');
+      }
       
+      // Fallback to placeholder
       return {
         success: true,
-        data: { cleared: true }
+        data: {
+          answer: 'AI response functionality coming soon. This is a placeholder response to test the system.',
+          sources: [],
+          confidence: 0.5
+        }
       };
     } catch (error) {
-      log('error', 'Failed to clear cache', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('[TabSense] Error answering question:', error);
+      return { success: false, error: error.message };
     }
   }
 
-  // ==================== CONTEXT ENHANCEMENT HANDLERS ====================
-
-  /**
-   * Handle context enhancement request
-   */
-  async handleEnhanceContext(payload, sender) {
+  async handleSummarizeText(payload, sender) {
+    console.log('[TabSense] SUMMARIZE_TEXT received');
     try {
-      log('info', 'Enhancing context for page');
+      const { text } = payload || {};
       
-      const { pageData, contextType = 'comprehensive' } = payload;
-      
-      if (!pageData || !pageData.title) {
-        throw new Error('Page data with title is required');
+      // Try offscreen first
+      try {
+        const response = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'SUMMARIZE_TEXT',
+          payload: { text }
+        });
+        
+        if (response && response.success) {
+          return {
+            success: true,
+            data: response.data
+          };
+        }
+      } catch (offscreenError) {
+        console.log('[TabSense] Offscreen not available, using placeholder');
       }
-
-      const enhancedContext = await this.contextEnhancer.getExternalContext(pageData, contextType);
+      
+      // Fallback: simple extractive summarization
+      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+      const summary = sentences.slice(0, 3).join('. ') + '.';
       
       return {
         success: true,
         data: {
-          enhancedContext,
-          contextType,
-          sources: enhancedContext.sources || []
+          summary
         }
       };
     } catch (error) {
-      log('error', 'Context enhancement failed', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('[TabSense] Error summarizing text:', error);
+      return { success: false, error: error.message };
     }
   }
 
-  /**
-   * Handle external context request
-   */
-  async handleGetExternalContext(payload, sender) {
+  async handleProcessAllTabs(payload, sender) {
+    console.log('[TabSense] PROCESS_ALL_TABS received');
     try {
-      log('info', 'Getting external context');
+      // Get all tabs
+      const tabs = await chrome.tabs.query({});
+      console.log('[TabSense] Found tabs:', tabs.length);
       
-      const { query, contextType = 'comprehensive' } = payload;
-      
-      if (!query) {
-        throw new Error('Query is required');
-      }
-
-      // Create mock page data for context enhancement
-      const pageData = {
-        title: query,
-        url: '',
-        content: '',
-        pageType: 'generic'
-      };
-
-      const externalContext = await this.contextEnhancer.getExternalContext(pageData, contextType);
-      
-      return {
-        success: true,
-        data: {
-          context: externalContext,
-          contextType,
-          query
-        }
-      };
-    } catch (error) {
-      log('error', 'Failed to get external context', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Handle initialization error
-   */
-  handleInitializationError(error) {
-    log('error', 'Critical initialization error', error);
-    
-    // Send error status to UI
-    this.broadcastMessage({
-      action: 'SERVICE_WORKER_ERROR',
-      payload: { error: error.message, timestamp: Date.now() }
-    });
-  }
-
-  // ==================== MULTI-TAB AI OPERATION HANDLERS (MILESTONE 3) ====================
-
-  /**
-   * Clean content for summarization by removing navigation and metadata
-   */
-  cleanContentForSummarization(content) {
-    if (!content || typeof content !== 'string') {
-      return '';
-    }
-
-    // Remove common navigation and metadata patterns
-    const patterns = [
-      // Wikipedia patterns
-      /Categories:.*?(?=\n\n|\n===|$)/gs,
-      /Hidden categories:.*?(?=\n\n|\n===|$)/gs,
-      /Pages with.*?(?=\n\n|\n===|$)/gs,
-      /Articles containing.*?(?=\n\n|\n===|$)/gs,
-      /All articles with.*?(?=\n\n|\n===|$)/gs,
-      /Articles with.*?(?=\n\n|\n===|$)/gs,
-      /CS1.*?(?=\n\n|\n===|$)/gs,
-      /Pages using.*?(?=\n\n|\n===|$)/gs,
-      /Wikipedia.*?(?=\n\n|\n===|$)/gs,
-      /Use.*?(?=\n\n|\n===|$)/gs,
-      
-      // Website navigation patterns
-      /Skip to content.*?(?=\n\n|\n===|$)/gs,
-      /For Customers.*?(?=\n\n|\n===|$)/gs,
-      /Support.*?(?=\n\n|\n===|$)/gs,
-      /Follow.*?(?=\n\n|\n===|$)/gs,
-      /Products.*?(?=\n\n|\n===|$)/gs,
-      /Company.*?(?=\n\n|\n===|$)/gs,
-      /Media.*?(?=\n\n|\n===|$)/gs,
-      /Bloomberg.*?(?=\n\n|\n===|$)/gs,
-      /Americas\+1.*?(?=\n\n|\n===|$)/gs,
-      /EMEA\+44.*?(?=\n\n|\n===|$)/gs,
-      /Asia Pacific\+65.*?(?=\n\n|\n===|$)/gs,
-      
-      // Reddit-style patterns
-      /r\/\w+.*?(?=\n\n|\n===|$)/gs,
-      
-      // Section headers
-      /^\s*===.*?===\s*$/gm,
-      
-      // Standalone numbers and short lines
-      /^\s*\d+\s*$/gm,
-      /^\s*[A-Z\s]{2,20}\s*$/gm,
-      /^\s*[a-z\s]{2,20}\s*$/gm,
-      
-      // Social media links
-      /Facebook|Instagram|LinkedIn|YouTube|Twitter/i,
-      
-      // Common navigation words
-      /^(Categories|Hidden|Skip|For|Support|Follow|Products|Company|Media|Bloomberg|Americas|EMEA|Asia|Pacific|Facebook|Instagram|LinkedIn|YouTube|Twitter)$/gmi
-    ];
-
-    let cleaned = content;
-    patterns.forEach(pattern => {
-      cleaned = cleaned.replace(pattern, '');
-    });
-
-    // Remove excessive whitespace
-    cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n');
-    cleaned = cleaned.replace(/\s+/g, ' ');
-
-    return cleaned.trim();
-  }
-
-  /**
-   * Handle multi-tab summarization request
-   */
-  async handleSummarizeMultiTab(payload, sender) {
-    log('info', 'Multi-tab summarization requested', { sender: sender.tab?.url });
-
-    try {
-      // Get multi-tab collection
-      const collection = await this.getMultiTabCollection();
-      
-      if (!collection.tabs || collection.tabs.length === 0) {
-        throw new Error('No tabs available for summarization');
-      }
-
-      // Prepare content from all tabs
-      const tabContents = collection.tabs.map(tab => ({
-        title: tab.title,
-        url: tab.url,
-        content: tab.content || '',
-        domain: tab.domain || new URL(tab.url).hostname
-      }));
-
-      // Clean and combine content for summarization
-      const cleanedTabContents = tabContents.map(tab => ({
-        ...tab,
-        content: this.cleanContentForSummarization(tab.content)
-      }));
-
-      const combinedContent = cleanedTabContents
-        .map(tab => `=== ${tab.title} (${tab.domain}) ===\n${tab.content}`)
-        .join('\n\n');
-
-      log('info', 'Starting multi-tab summarization', {
-        tabCount: collection.tabCount,
-        totalContentLength: collection.totalContentLength,
-        combinedLength: combinedContent.length,
-        cleanedLength: combinedContent.length
-      });
-
-      // Use AI adapter to summarize
-      const summary = await this.aiAdapter.summarizeText(combinedContent, { maxLength: 'medium' });
-
-      log('info', 'Multi-tab summarization completed', {
-        summaryLength: summary.length
-      });
-
-      return {
-        success: true,
-        data: {
-          summary,
-          tabCount: collection.tabCount,
-          totalContentLength: collection.totalContentLength,
-          summaryLength: summary.length,
-          tabs: tabContents.map(tab => ({
-            title: tab.title,
-            domain: tab.domain,
-            contentLength: tab.content.length
-          })),
-          timestamp: Date.now()
-        }
-      };
-
-    } catch (error) {
-      log('error', 'Multi-tab summarization failed', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Handle multi-tab Q&A request
-   */
-  async handleAnswerMultiTabQuestion(payload, sender) {
-    log('info', 'Multi-tab Q&A requested', { sender: sender.tab?.url });
-
-    try {
-      const { question } = payload;
-      
-      if (!question || question.length === 0) {
-        throw new Error('No question provided');
-      }
-
-      // Get multi-tab collection
-      const collection = await this.getMultiTabCollection();
-      
-      if (!collection.tabs || collection.tabs.length === 0) {
-        throw new Error('No tabs available for Q&A');
-      }
-
-      // Prepare context from all tabs
-      const context = collection.tabs.map(tab => 
-        `${tab.title} (${tab.domain}): ${tab.content?.substring(0, 1000) || ''}`
+      // Filter out internal pages
+      const processableTabs = tabs.filter(tab => 
+        tab.url && 
+        !tab.url.startsWith('chrome://') && 
+        !tab.url.startsWith('chrome-extension://') &&
+        !tab.url.startsWith('edge://')
       );
-
-      log('info', 'Starting multi-tab Q&A', {
-        questionLength: question.length,
-        tabCount: collection.tabCount,
-        contextCount: context.length
-      });
-
-      // Use AI adapter to answer question
-      const answer = await this.aiAdapter.answerQuestion(question, context);
-
-      log('info', 'Multi-tab Q&A completed', {
-        answerLength: answer.length
-      });
-
-      return {
-        success: true,
-        data: {
-          answer,
-          question,
-          tabCount: collection.tabCount,
-          contextCount: context.length,
-          tabs: collection.tabs.map(tab => ({
-            title: tab.title,
-            domain: tab.domain,
-            url: tab.url
-          })),
-          timestamp: Date.now()
+      
+      console.log('[TabSense] Processable tabs:', processableTabs.length);
+      
+      // Inject content scripts to extract real content
+      const tabsData = await Promise.all(processableTabs.map(async (tab) => {
+        try {
+          // Inject content script and get page data
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: extractPageContent
+          });
+          
+          const extractedData = results[0]?.result || {};
+          
+          return {
+            id: tab.id,
+            title: extractedData.title || tab.title || 'Untitled',
+            url: tab.url,
+            content: extractedData.content || `Content from ${tab.title || tab.url}`,
+            summary: extractedData.summary || 'Content extracted',
+            category: extractedData.category || 'generic',
+            processed: true,
+            timestamp: Date.now()
+          };
+        } catch (error) {
+          console.log('[TabSense] Error extracting from tab:', tab.id, error.message);
+          // Fallback to placeholder
+          return {
+            id: tab.id,
+            title: tab.title || 'Untitled',
+            url: tab.url,
+            content: `Content from ${tab.title || tab.url}`,
+            summary: 'Waiting for content extraction...',
+            category: 'generic',
+            processed: false,
+            timestamp: Date.now()
+          };
         }
-      };
-
-    } catch (error) {
-      log('error', 'Multi-tab Q&A failed', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  // ==================== API MANAGEMENT HANDLERS ====================
-
-  /**
-   * Initialize API services with keys
-   */
-  async handleInitializeAPIs(payload, sendResponse) {
-    try {
-      log('info', 'Initializing API services', { hasKeys: !!payload.apiKeys });
+      }));
       
-      const { apiKeys } = payload;
-      await unifiedAPI.initialize(apiKeys);
-      this.apiInitialized = true;
-      
-      log('info', 'API services initialized successfully');
-      sendResponse({
-        success: true,
-        data: { message: 'API services initialized successfully' }
+      // Store in both places for compatibility
+      await chrome.storage.local.set({ 
+        processed_tabs: tabsData,
+        multi_tab_collection: tabsData 
       });
-    } catch (error) {
-      log('error', 'Failed to initialize API services', error);
-      sendResponse({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  /**
-   * Get API status for all services
-   */
-  async handleGetAPIStatus(sendResponse) {
-    try {
-      log('info', 'Getting API status');
       
-      const status = await unifiedAPI.getAPIStatus();
+      // Wait a moment to ensure storage is written
+      await new Promise(resolve => setTimeout(resolve, 100));
       
-      sendResponse({
-        success: true,
-        data: status
-      });
-    } catch (error) {
-      log('error', 'Failed to get API status', error);
-      sendResponse({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  /**
-   * Extract data from URL using appropriate API service
-   */
-  async handleExtractDataFromUrl(payload, sendResponse) {
-    try {
-      const { url } = payload;
-      log('info', 'Extracting data from URL using API services', { url });
-      
-      const data = await unifiedAPI.extractDataFromUrl(url);
-      
-      if (data) {
-        // Store the extracted data
-        await this.storeTabData({
-          ...data,
-          url: url,
-          extractedAt: new Date().toISOString()
-        });
-        
-        log('info', 'Data extracted and stored successfully', { 
-          type: data.type,
-          hasVideo: !!data.video,
-          commentCount: data.comments?.length || 0
-        });
-        
-        sendResponse({
-          success: true,
-          data: data
-        });
-      } else {
-        sendResponse({
-          success: false,
-          error: 'URL not supported by any API service'
-        });
-      }
-    } catch (error) {
-      log('error', 'Failed to extract data from URL', error);
-      sendResponse({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  // ==================== ADAPTIVE SUMMARIZATION HANDLERS ====================
-
-  /**
-   * Initialize AdaptiveSummarizer with API keys
-   */
-  async initializeAdaptiveSummarizer() {
-    try {
-      if (this.adaptiveSummarizer) {
-        return; // Already initialized
-      }
-
-      // Get API keys
-      const apiKeys = await this.credentialManager.getApiKeys();
-      
-      // Use Google Gemini as primary (most cost-effective)
-      const apiKey = apiKeys.google || apiKeys.openai || apiKeys.anthropic;
-      
-      if (!apiKey) {
-        log('warn', 'No API key available for AdaptiveSummarizer');
-        return;
-      }
-
-      this.adaptiveSummarizer = new AdaptiveSummarizer(apiKey, 'gemini-2.0-flash');
-      log('info', 'AdaptiveSummarizer initialized successfully');
-    } catch (error) {
-      log('error', 'Failed to initialize AdaptiveSummarizer', error);
-    }
-  }
-
-  /**
-   * Handle adaptive summarization request
-   */
-  async handleAdaptiveSummarize(payload, sender) {
-    try {
-      log('info', 'Handling adaptive summarization request');
-      
-      // Initialize if needed
-      await this.initializeAdaptiveSummarizer();
-      
-      if (!this.adaptiveSummarizer) {
-        throw new Error('AdaptiveSummarizer not available - no API keys configured');
-      }
-
-      const { pageData, length = 'short' } = payload;
-      
-      if (!pageData || !pageData.content) {
-        throw new Error('Page data with content is required');
-      }
-
-      const result = await this.adaptiveSummarizer.summarize(pageData, length);
-      
-      return {
-        success: true,
-        data: result.data
-      };
-    } catch (error) {
-      log('error', 'Adaptive summarization failed', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Check cached summaries
-   */
-  async handleCheckCachedSummaries(payload, sender) {
-    try {
-      log('info', 'Checking cached summaries');
-      
-      const cacheStats = await this.cachingManager.getCacheStats();
+      // Verify storage
+      const verify = await chrome.storage.local.get(['multi_tab_collection']);
+      console.log('[TabSense] Verification - multi_tab_collection has:', verify.multi_tab_collection?.length || 0, 'items');
       
       return {
         success: true,
         data: {
-          totalCached: cacheStats.totalCached,
-          cacheSize: cacheStats.cacheSize,
-          hitRate: cacheStats.hitRate,
-          lastCleanup: cacheStats.lastCleanup
+          tabsProcessed: tabsData.length,
+          tabs: tabsData,
+          stored: verify.multi_tab_collection || []
         }
       };
     } catch (error) {
-      log('error', 'Failed to check cached summaries', error);
+      console.error('[TabSense] Error processing tabs:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async handleGetAPIStatus(payload, sender) {
+    console.log('[TabSense] GET_API_STATUS received');
+    try {
+      // Get API keys from storage
+      const result = await chrome.storage.local.get(['tabsense_api_keys']);
+      const keys = result.tabsense_api_keys || {};
+      
       return {
-        success: false,
-        error: error.message
+        success: true,
+        data: {
+          youtube: { available: true, configured: !!keys.youtube },
+          news: { available: true, configured: !!keys.newsapi }
+        }
       };
+    } catch (error) {
+      console.error('[TabSense] Error getting API status:', error);
+      return { success: false, error: error.message };
     }
   }
 
-  /**
-   * Get cached summary by URL
-   */
-  async handleGetCachedSummaryByUrl(payload, sender) {
+  async handleInitializeAPIs(payload, sender) {
+    console.log('[TabSense] INITIALIZE_APIS received');
     try {
-      log('info', 'Getting cached summary by URL');
+      const { apiKeys } = payload || {};
       
-      const { url, title, content } = payload;
-      
-      if (!url) {
-        throw new Error('URL is required');
+      if (apiKeys) {
+        // Store API keys
+        await chrome.storage.local.set({
+          tabsense_api_keys: apiKeys
+        });
+        console.log('[TabSense] API keys stored');
       }
-
-      // Generate cache key
-      const cacheKey = await this.cachingManager.generateContentHash(content || '', {
-        title: title || '',
-        url: url
-      });
-
-      const cachedSummary = await this.cachingManager.getCachedSummary(cacheKey);
       
-      if (cachedSummary) {
-        return {
-          success: true,
-          data: {
-            summary: cachedSummary.summary,
-            metadata: cachedSummary.metadata,
-            cached: true,
-            cacheKey: cacheKey
-          }
-        };
-      } else {
-        return {
-          success: true,
-          data: {
-            cached: false,
-            cacheKey: cacheKey
-          }
-        };
-      }
-    } catch (error) {
-      log('error', 'Failed to get cached summary by URL', error);
       return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  // ==================== API KEY MANAGEMENT HANDLERS ====================
-
-  /**
-   * Save API key for a specific provider
-   */
-  async handleSaveAPIKey(payload, sender) {
-    try {
-      const { provider, apiKey, type = 'ai' } = payload;
-      log('info', 'Saving API key', { provider, type, hasKey: !!apiKey });
-
-      if (!provider || !apiKey) {
-        throw new Error('Provider and API key are required');
-      }
-
-      // Store the API key
-      const storageKey = type === 'other' ? 'other_api_keys' : 'ai_api_keys';
-      const result = await chrome.storage.local.get([storageKey]);
-      const keys = result[storageKey] || {};
-      
-      keys[provider] = apiKey;
-      
-      await chrome.storage.local.set({ [storageKey]: keys });
-      
-      // Also store in the legacy format for AI providers
-      if (type === 'ai') {
-        await chrome.storage.local.set({ [`${provider}_api_key`]: apiKey });
-      }
-
-      // Reinitialize APIs if this is an "other" API
-      if (type === 'other') {
-        try {
-          await unifiedAPI.initialize();
-          log('info', 'APIs reinitialized after saving key', { provider });
-        } catch (error) {
-          log('warn', 'Failed to reinitialize APIs after saving key', error);
-        }
-      }
-
-      log('info', 'API key saved successfully', { provider, type });
-      
-      return { message: 'API key saved successfully' };
-    } catch (error) {
-      log('error', 'Failed to save API key', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get all stored API keys
-   */
-  async handleGetAPIKeys(payload, sender) {
-    try {
-      log('info', 'Getting all API keys');
-
-      const [aiResult, otherResult] = await Promise.all([
-        chrome.storage.local.get(['ai_api_keys']),
-        chrome.storage.local.get(['other_api_keys'])
-      ]);
-
-      const aiKeys = aiResult.ai_api_keys || {};
-      const otherKeys = otherResult.other_api_keys || {};
-
-      // Also get legacy format keys
-      const legacyKeys = {};
-      const providers = ['openai', 'anthropic', 'google', 'xai'];
-      for (const provider of providers) {
-        const result = await chrome.storage.local.get([`${provider}_api_key`]);
-        if (result[`${provider}_api_key`]) {
-          legacyKeys[provider] = result[`${provider}_api_key`];
-        }
-      }
-
-      // Merge legacy keys with current keys
-      const allAiKeys = { ...legacyKeys, ...aiKeys };
-
-      log('info', 'API keys retrieved', { 
-        aiCount: Object.keys(allAiKeys).length,
-        otherCount: Object.keys(otherKeys).length
-      });
-
-      return {
-        ai: allAiKeys,
-        other: otherKeys
+        success: true,
+        data: { message: 'APIs initialized' }
       };
     } catch (error) {
-      log('error', 'Failed to get API keys', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Delete API key for a specific provider
-   */
-  async handleDeleteAPIKey(payload, sender) {
-    try {
-      const { provider, type = 'ai' } = payload;
-      log('info', 'Deleting API key', { provider, type });
-
-      if (!provider) {
-        throw new Error('Provider is required');
-      }
-
-      // Remove from storage
-      const storageKey = type === 'other' ? 'other_api_keys' : 'ai_api_keys';
-      const result = await chrome.storage.local.get([storageKey]);
-      const keys = result[storageKey] || {};
-      
-      delete keys[provider];
-      
-      await chrome.storage.local.set({ [storageKey]: keys });
-      
-      // Also remove from legacy format for AI providers
-      if (type === 'ai') {
-        await chrome.storage.local.remove([`${provider}_api_key`]);
-      }
-
-      log('info', 'API key deleted successfully', { provider, type });
-      
-      return { message: 'API key deleted successfully' };
-    } catch (error) {
-      log('error', 'Failed to delete API key', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Toggle API enabled/disabled state
-   */
-  async handleToggleAPIEnabled(payload, sender) {
-    try {
-      const { provider, enabled, type = 'ai' } = payload;
-      log('info', 'Toggling API enabled state', { provider, enabled, type });
-
-      if (!provider || typeof enabled !== 'boolean') {
-        throw new Error('Provider and enabled state are required');
-      }
-
-      // Store the enabled state
-      const storageKey = type === 'other' ? 'other_api_enabled' : 'ai_api_enabled';
-      const result = await chrome.storage.local.get([storageKey]);
-      const enabledStates = result[storageKey] || {};
-      
-      enabledStates[provider] = enabled;
-      
-      await chrome.storage.local.set({ [storageKey]: enabledStates });
-
-      // Reinitialize APIs if this is an "other" API and it was enabled
-      if (type === 'other' && enabled) {
-        try {
-          await unifiedAPI.initialize();
-          log('info', 'APIs reinitialized after enabling', { provider });
-        } catch (error) {
-          log('warn', 'Failed to reinitialize APIs after enabling', error);
-        }
-      }
-
-      log('info', 'API enabled state updated', { provider, enabled, type });
-      
-      return { message: 'API enabled state updated' };
-    } catch (error) {
-      log('error', 'Failed to toggle API enabled state', error);
-      throw error;
+      console.error('[TabSense] Error initializing APIs:', error);
+      return { success: false, error: error.message };
     }
   }
 }
 
-// ==================== SERVICE WORKER INITIALIZATION ====================
-
-// Create service worker instance
-console.log('[TabSense] Creating service worker instance...');
+// Create instance
 const serviceWorker = new TabSenseServiceWorker();
 
-// Initialize when service worker starts
-console.log('[TabSense] Starting service worker initialization...');
-log('info', 'Starting service worker initialization...');
-
+// Initialize
 serviceWorker.initialize()
   .then(() => {
-    console.log('[TabSense] ✅ Service worker initialization completed successfully');
-    log('info', 'Service worker initialization completed successfully');
+    console.log('[TabSense] ✅ Service worker initialization complete');
   })
   .catch(error => {
-    console.error('[TabSense] ❌ Failed to initialize service worker:', error);
-    console.error('[TabSense] Error details:', error.message, error.stack);
-    log('error', 'Failed to initialize service worker', error);
-    
-    // Try to send error to UI if possible
-    try {
-      chrome.runtime.sendMessage({
-        action: 'SERVICE_WORKER_ERROR',
-        error: error.message,
-        timestamp: Date.now()
-      }).catch(() => {
-        // Ignore if no listeners
-      });
-    } catch (e) {
-      console.error('[TabSense] Failed to send error message:', e);
-    }
+    console.error('[TabSense] ❌ Service worker initialization failed:', error);
   });
 
-// Export for testing (if needed)
 export default serviceWorker;
+

@@ -39,9 +39,14 @@
   ],
   
   
+  "offscreen": {
+    "document": "offscreen.html",
+    "reasons": ["DOM_PARSING"]
+  },
+  
       "web_accessible_resources": [
         {
-          "resources": ["assets/images/*", "src/ui/test/test-ai.html"],
+          "resources": ["assets/images/*", "src/ui/test/test-ai.html", "heavy-modules.js", "offscreen.html", "offscreen.js"],
           "matches": ["<all_urls>"]
         }
       ],
