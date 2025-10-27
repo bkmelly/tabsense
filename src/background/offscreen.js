@@ -93,8 +93,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'ADAPTIVE_SUMMARIZE':
       // For flat structure, extract the payload from the message itself
       const adaptivePayload = payload || { text, url, title, metadata, options };
-      handleAdaptiveSummarize(adaptivePayload, sendResponse);
-      return true;
+      // Handle async properly
+      handleAdaptiveSummarize(adaptivePayload, sendResponse).catch((error) => {
+        console.error('[TabSense Offscreen] Error in handleAdaptiveSummarize:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+      return true; // Keep channel open for async response
       
     case 'ENHANCE_CONTEXT':
       handleEnhanceContext(payload, sendResponse);

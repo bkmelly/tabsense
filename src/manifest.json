@@ -10,7 +10,8 @@
     "storage",
     "activeTab",
     "contextMenus",
-    "sidePanel"
+    "sidePanel",
+    "offscreen"
   ],
   
   "host_permissions": [
@@ -38,13 +39,7 @@
     }
   ],
   
-  
-  "offscreen": {
-    "document": "offscreen.html",
-    "reasons": ["DOM_PARSING"]
-  },
-  
-      "web_accessible_resources": [
+  "web_accessible_resources": [
         {
           "resources": ["assets/images/*", "src/ui/test/test-ai.html", "offscreen.html", "offscreen.js"],
           "matches": ["<all_urls>"]
