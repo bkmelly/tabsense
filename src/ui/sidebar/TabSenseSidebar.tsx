@@ -300,6 +300,22 @@ const TabSenseSidebar: React.FC = () => {
               'Background service is ready',
               3000
             );
+            
+            // Check Chrome AI availability on startup with delay
+            setTimeout(async () => {
+              try {
+                const availabilityResponse = await sendMessageToServiceWorker({ action: 'GET_API_ENABLED_STATES' });
+                if (availabilityResponse.success && availabilityResponse.data.chrome_ai_available === false) {
+                  showError(
+                    'Chrome AI Unavailable',
+                    'Your device is not compatible with Chrome Built-in AI. Please configure another AI provider in Settings.',
+                    8000
+                  );
+                }
+              } catch (error) {
+                console.error('[TabSense] Error checking Chrome AI availability:', error);
+              }
+            }, 2000); // 2 second delay after service worker success message
           } else {
             console.log('[TabSense] ⚠️ Service worker connected but not fully initialized');
             showError(
@@ -741,7 +757,7 @@ const TabSenseSidebar: React.FC = () => {
       });
       
       if (response.success) {
-        console.log(`Saved conversation "${title}" with ${messages.length} messages to archive`);
+    console.log(`Saved conversation "${title}" with ${messages.length} messages to archive`);
         // Update local state
         setConversationHistory(prev => [newConversation, ...prev]);
         setActiveConversationId(conversationId);
@@ -782,18 +798,18 @@ const TabSenseSidebar: React.FC = () => {
       });
       
       if (response.success) {
-        const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const finalMessages = [...updatedMessages, { 
           role: "assistant" as const, 
           content: response.data.answer, 
           timestamp: responseTimestamp 
         }];
-        setMainMessages(finalMessages);
-        
-        // Save to archive after first exchange
-        if (updatedMessages.length === 1) {
-          saveConversationToArchive(`Main Q&A: ${mainQuestion.substring(0, 30)}...`, finalMessages);
-        }
+      setMainMessages(finalMessages);
+      
+      // Save to archive after first exchange
+      if (updatedMessages.length === 1) {
+        saveConversationToArchive(`Main Q&A: ${mainQuestion.substring(0, 30)}...`, finalMessages);
+      }
       } else {
         throw new Error(response.error || 'Failed to get AI response');
       }
@@ -840,19 +856,19 @@ const TabSenseSidebar: React.FC = () => {
       });
       
       if (response.success) {
-        const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const finalMessages = [...updatedMessages, { 
           role: "assistant" as const, 
           content: response.data.answer, 
           timestamp: responseTimestamp 
         }];
-        setSummaryMessages(finalMessages);
-        
-        // Save to archive after first exchange
-        if (updatedMessages.length === 1) {
-          const summaryTitle = selectedSummaryForQA?.title || "Unknown Summary";
-          saveConversationToArchive(`Summary Q&A: ${summaryTitle} - ${summaryQuestion.substring(0, 20)}...`, finalMessages);
-        }
+      setSummaryMessages(finalMessages);
+      
+      // Save to archive after first exchange
+      if (updatedMessages.length === 1) {
+        const summaryTitle = selectedSummaryForQA?.title || "Unknown Summary";
+        saveConversationToArchive(`Summary Q&A: ${summaryTitle} - ${summaryQuestion.substring(0, 20)}...`, finalMessages);
+      }
       } else {
         throw new Error(response.error || 'Failed to get AI response');
       }
@@ -1017,7 +1033,7 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
                   const conversation = response.data.conversations.find((conv: any) => conv.id === id);
                   if (conversation) {
                     setMainMessages(conversation.messages || []);
-                  } else {
+              } else {
                     console.error('Conversation not found:', id);
                     setMainMessages([]);
                   }

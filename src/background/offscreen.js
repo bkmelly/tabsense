@@ -35,8 +35,18 @@ async function initializeHeavyModules() {
   }
   
   try {
-    adaptiveSummarizer = new AdaptiveSummarizer();
-    console.log('[TabSense Offscreen] AdaptiveSummarizer initialized');
+    // Get API key from storage
+    const result = await chrome.storage.local.get(['ai_api_keys']);
+    const aiApiKeys = result.ai_api_keys || {};
+    const geminiApiKey = aiApiKeys.google || aiApiKeys.gemini;
+    
+    if (geminiApiKey) {
+      adaptiveSummarizer = new AdaptiveSummarizer(geminiApiKey, 'gemini-2.0-flash');
+      console.log('[TabSense Offscreen] AdaptiveSummarizer initialized with Gemini API key');
+    } else {
+      console.log('[TabSense Offscreen] No Gemini API key found, AdaptiveSummarizer will use fallback');
+      adaptiveSummarizer = new AdaptiveSummarizer();
+    }
   } catch (error) {
     console.error('[TabSense Offscreen] Failed to initialize AdaptiveSummarizer:', error);
   }
@@ -53,6 +63,11 @@ async function initializeHeavyModules() {
 
 // Listen for messages from service worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Only handle messages meant for offscreen
+  if (message.target !== 'offscreen') {
+    return; // Ignore messages not for us
+  }
+  
   console.log('[TabSense Offscreen] Received message:', message.action);
   
   const { action, payload } = message;
@@ -90,7 +105,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'SUMMARIZE_TEXT':
       handleSummarizeText(payload, sendResponse);
       return true;
-      
+    
+    case 'EXTRACT_DATA_FROM_URL':
+      handleExtractDataFromUrl(payload, sendResponse);
+      return true;
+    
     default:
       console.warn('[TabSense Offscreen] Unknown action:', action);
       sendResponse({ error: 'Unknown action' });
@@ -152,11 +171,31 @@ async function handleAdaptiveSummarize(payload, sendResponse) {
     if (!adaptiveSummarizer) {
       await initializeHeavyModules();
     }
-    const summary = await adaptiveSummarizer.summarize(payload.content, payload.options);
-    sendResponse({ summary });
+    const { text, options } = payload || {};
+    
+    if (!text) {
+      sendResponse({ success: false, error: 'Text is required' });
+      return;
+    }
+    
+    // AdaptiveSummarizer.summarize expects {url, title, content, metadata}
+    const pageData = {
+      url: payload.url || '',
+      title: payload.title || '',
+      content: text,
+      metadata: payload.metadata || {}
+    };
+    
+    const result = await adaptiveSummarizer.summarize(pageData, options?.length || 'medium');
+    
+    if (result && result.success) {
+      sendResponse({ success: true, data: result.data || result });
+    } else {
+      sendResponse({ success: false, error: result?.error || 'Summarization failed' });
+    }
   } catch (error) {
-    console.error('[TabSense Offscreen] Error summarizing:', error);
-    sendResponse({ error: error.message });
+    console.error('[TabSense Offscreen] Error in adaptive summarization:', error);
+    sendResponse({ success: false, error: error.message });
   }
 }
 
@@ -165,8 +204,30 @@ async function handleEnhanceContext(payload, sendResponse) {
     if (!contextEnhancer) {
       await initializeHeavyModules();
     }
-    const enhancedContext = await contextEnhancer.enhance(payload.context, payload.options);
-    sendResponse({ success: true, data: { enhancedContext } });
+    
+    const { pageData, contextType } = payload || {};
+    
+    if (!pageData || !pageData.title) {
+      sendResponse({ success: false, error: 'Page data with title is required' });
+      return;
+    }
+    
+    // ContextEnhancer expects {title, url, content, pageType}
+    const context = await contextEnhancer.getExternalContext({
+      title: pageData.title,
+      url: pageData.url || '',
+      content: pageData.content || '',
+      pageType: pageData.pageType || 'generic'
+    }, payload.apiKey);
+    
+    sendResponse({ 
+      success: true, 
+      data: { 
+        title: pageData.title,
+        summary: context.summary || pageData.summary || 'No summary available',
+        context: context.context || []
+      } 
+    });
   } catch (error) {
     console.error('[TabSense Offscreen] Error enhancing context:', error);
     sendResponse({ success: false, error: error.message });
@@ -196,14 +257,39 @@ async function handleSummarizeText(payload, sendResponse) {
   try {
     const { text } = payload || {};
     
+    if (!text) {
+      sendResponse({ success: false, error: 'Text is required' });
+      return;
+    }
+    
     if (!adaptiveSummarizer) {
       await initializeHeavyModules();
     }
     
     // Try to use adaptiveSummarizer if available
-    if (adaptiveSummarizer && text) {
-      const summary = await adaptiveSummarizer.summarize(text, { length: 'medium' });
-      sendResponse({ success: true, data: { summary } });
+    if (adaptiveSummarizer) {
+      const pageData = {
+        url: payload.url || '',
+        title: payload.title || '',
+        content: text,
+        metadata: {}
+      };
+      
+      const result = await adaptiveSummarizer.summarize(pageData, 'medium');
+      
+      if (result && result.success) {
+        sendResponse({ 
+          success: true, 
+          data: { 
+            summary: result.data?.summary || result.summary,
+            metadata: result.data?.metadata || result.metadata,
+            cached: result.data?.cached || result.cached
+          } 
+        });
+      } else {
+        // Fallback if summarizer fails
+        throw new Error(result?.error || 'Summarization failed');
+      }
     } else {
       // Fallback: simple extractive
       const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
@@ -212,6 +298,66 @@ async function handleSummarizeText(payload, sendResponse) {
     }
   } catch (error) {
     console.error('[TabSense Offscreen] Error summarizing:', error);
+    
+    // Still provide fallback on error
+    try {
+      const { text } = payload || {};
+      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+      const summary = sentences.slice(0, 3).join('. ') + '.';
+      sendResponse({ success: true, data: { summary } });
+    } catch (fallbackError) {
+      sendResponse({ success: false, error: error.message });
+    }
+  }
+}
+
+async function handleExtractDataFromUrl(payload, sendResponse) {
+  console.log('[TabSense Offscreen] EXTRACT_DATA_FROM_URL received');
+  try {
+    const { url } = payload || {};
+    
+    if (!url) {
+      sendResponse({ success: false, error: 'URL is required' });
+      return;
+    }
+    
+    // Check if URL is from a supported external API
+    if (url.includes('youtube.com')) {
+      // YouTube API integration would go here
+      sendResponse({ 
+        success: true, 
+        data: { 
+          url, 
+          type: 'youtube',
+          extracted: false,
+          message: 'YouTube API integration requires API key configuration'
+        } 
+      });
+    } else if (url.includes('newsapi.org') || url.match(/\/news/)) {
+      // News API integration would go here
+      sendResponse({ 
+        success: true, 
+        data: { 
+          url, 
+          type: 'news',
+          extracted: false,
+          message: 'News API integration requires API key configuration'
+        } 
+      });
+    } else {
+      // Generic extraction
+      sendResponse({ 
+        success: true, 
+        data: { 
+          url, 
+          type: 'generic',
+          extracted: false,
+          message: 'Generic URL extraction not yet implemented'
+        } 
+      });
+    }
+  } catch (error) {
+    console.error('[TabSense Offscreen] Error extracting data from URL:', error);
     sendResponse({ success: false, error: error.message });
   }
 }

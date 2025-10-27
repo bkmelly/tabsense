@@ -4,7 +4,12 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, ChevronDown } from 'lucide-react';
+import { Eye, EyeOff, ChevronDown, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+import { useToast } from './Toast';
+import ConfirmationDialog from './ConfirmationDialog';
+
+// Declare chrome types for TypeScript
+declare const chrome: any;
 
 export interface OtherAPI {
   id: string;
@@ -148,6 +153,7 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
     openai: false,
     xai: false
   });
+  const { success: showSuccess, error: showError } = useToast();
   const [selectedModel, setSelectedModel] = useState<string>("chrome");
   const [showModelDropdown, setShowModelDropdown] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -163,8 +169,24 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
     github: false
   });
   const [selectedOtherApi, setSelectedOtherApi] = useState<string>("youtube");
+  
+  const [chromeAiAvailable, setChromeAiAvailable] = useState<boolean>(true);
+  const [inlineErrorShown, setInlineErrorShown] = useState<boolean>(false);
   const [showOtherDropdown, setShowOtherDropdown] = useState<boolean>(false);
   const otherDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Confirmation dialog state
+  const [confirmationDialog, setConfirmationDialog] = useState<{
+    isOpen: boolean;
+    action: string;
+    title: string;
+    message: string;
+  }>({
+    isOpen: false,
+    action: '',
+    title: '',
+    message: ''
+  });
 
   // Service worker communication
   const sendMessageToServiceWorker = async (message: any): Promise<any> => {
@@ -220,7 +242,27 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
           // Set Other API keys
           setOtherApiKeys(other || {});
           
-          console.log('[APIKeysSettings] Loaded API keys:', { ai, other });
+               // Also load enabled states
+               const enabledResponse = await sendMessageToServiceWorker({
+                 action: 'GET_API_ENABLED_STATES'
+               });
+               
+               if (enabledResponse.success) {
+                 const { ai_enabled, other_enabled, chrome_ai_available } = enabledResponse.data || {};
+                 if (ai_enabled) setModelEnabled(ai_enabled);
+                 if (other_enabled) setOtherApiEnabled(other_enabled);
+                 if (chrome_ai_available !== undefined) {
+                   const previousAvailability = chromeAiAvailable;
+                   setChromeAiAvailable(chrome_ai_available);
+                   
+                   // Show toast if Chrome AI is not available
+                   if (!chrome_ai_available && (previousAvailability === true || previousAvailability === undefined)) {
+                     showError('Chrome AI Unavailable', 'Your device is not compatible with Chrome Built-in AI. Please configure another AI provider.');
+                   }
+                 }
+               }
+          
+          console.log('[APIKeysSettings] Loaded API keys and states:', { ai, other });
         } else {
           console.error('[APIKeysSettings] Failed to load API keys:', response.error);
         }
@@ -247,11 +289,14 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
 
         if (response.success) {
           console.log('[APIKeysSettings] AI API key saved:', modelId);
+          showSuccess('Success', 'API key saved successfully');
         } else {
           console.error('[APIKeysSettings] Failed to save AI API key:', response.error);
+          showError('Error', response.error || 'Failed to save API key');
         }
       } catch (error) {
         console.error('[APIKeysSettings] Error saving AI API key:', error);
+        showError('Error', 'Failed to save API key');
       }
     }
     
@@ -259,6 +304,14 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
   };
 
   const handleModelToggle = async (modelId: string, enabled: boolean) => {
+    // Check if Chrome AI is incompatible and trying to enable it
+    if (modelId === 'chrome' && !chromeAiAvailable && enabled) {
+      showError('Device Incompatible', 'Chrome Built-in AI is not available on your device. Please use another AI provider.');
+      // Set a flag to show inline error
+      setInlineErrorShown(true);
+      return;
+    }
+    
     setModelEnabled(prev => ({ ...prev, [modelId]: enabled }));
     
     // Save enabled state to backend
@@ -272,11 +325,18 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
 
       if (response.success) {
         console.log('[APIKeysSettings] AI API enabled state saved:', modelId, enabled);
+        if (enabled) {
+          showSuccess('Enabled', `${modelId} API has been enabled`);
+        } else {
+          showSuccess('Disabled', `${modelId} API has been disabled`);
+        }
       } else {
         console.error('[APIKeysSettings] Failed to save AI API enabled state:', response.error);
+        showError('Error', response.error || 'Failed to update API state');
       }
     } catch (error) {
       console.error('[APIKeysSettings] Error saving AI API enabled state:', error);
+      showError('Error', 'Failed to update API state');
     }
     
     onModelToggle?.(modelId, enabled);
@@ -284,6 +344,47 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
 
   const toggleKeyVisibility = (modelId: string) => {
     setShowKeys(prev => ({ ...prev, [modelId]: !prev[modelId] }));
+  };
+
+  const handleDeleteApiKey = async (modelId: string) => {
+    try {
+      const response = await sendMessageToServiceWorker({
+        action: 'DELETE_API_KEY',
+        provider: modelId,
+        type: 'ai'
+      });
+
+      if (response.success) {
+        setApiKeys(prev => {
+          const updated = { ...prev };
+          delete updated[modelId];
+          return updated;
+        });
+        showSuccess('Success', 'API key deleted successfully');
+      } else {
+        showError('Error', response.error || 'Failed to delete API key');
+      }
+    } catch (error) {
+      console.error('[APIKeysSettings] Error deleting API key:', error);
+      showError('Error', 'Failed to delete API key');
+    }
+  };
+
+  const showDeleteConfirmation = (modelId: string, modelName: string) => {
+    setConfirmationDialog({
+      isOpen: true,
+      action: 'DELETE_API_KEY',
+      title: 'Delete API Key',
+      message: `Are you sure you want to delete the API key for ${modelName}? This action cannot be undone.`
+    });
+    // Store modelId for confirmation
+    (setConfirmationDialog as any)._pendingModelId = modelId;
+  };
+
+  const handleConfirmDelete = async () => {
+    const modelId = (confirmationDialog as any)._pendingModelId;
+    await handleDeleteApiKey(modelId);
+    setConfirmationDialog({ isOpen: false, action: '', title: '', message: '' });
   };
 
   // Other APIs handlers
@@ -361,33 +462,43 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
           
           {showModelDropdown && (
             <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-300 rounded-md shadow-lg z-20 max-h-80 overflow-y-auto">
-              {aiModels.map((model) => (
-                <div key={model.id} className="p-3 border-b border-gray-100 last:border-b-0">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-gray-900">{model.name}</span>
-                    <span className="text-xs text-gray-500">{model.cost}</span>
+              {aiModels.map((model) => {
+                const isActive = modelEnabled[model.id];
+                const hasKey = apiKeys[model.id];
+                const isSelected = selectedModel === model.id;
+                
+                return (
+                  <div key={model.id} className="p-3 border-b border-gray-100 last:border-b-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        {isActive && hasKey && <CheckCircle className="w-4 h-4 text-green-600" />}
+                        {isActive && !hasKey && <XCircle className="w-4 h-4 text-red-500" />}
+                        <span className="font-medium text-gray-900">{model.name}</span>
+                      </div>
+                      <span className="text-xs text-gray-500">{model.cost}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-2">{model.description}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">
+                        {model.models?.join(", ")}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setSelectedModel(model.id);
+                          setShowModelDropdown(false);
+                        }}
+                        className={`px-2 py-1 text-xs rounded transition-colors ${
+                          isSelected
+                            ? "bg-black text-white"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                      >
+                        {isSelected ? "Selected" : "Select"}
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-600 mb-2">{model.description}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">
-                      {model.models?.join(", ")}
-                    </span>
-                    <button
-                      onClick={() => {
-                        setSelectedModel(model.id);
-                        setShowModelDropdown(false);
-                      }}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                        selectedModel === model.id
-                          ? "bg-black text-white"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                      }`}
-                    >
-                      {selectedModel === model.id ? "Selected" : "Select"}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -400,12 +511,13 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-medium text-gray-800">{selectedModelData.name} API Key</h3>
             
-            {/* Toggle Switch */}
+            {/* Toggle Switch - Disabled for Chrome if incompatible */}
             <button
               onClick={() => handleModelToggle(selectedModelData.id, !modelEnabled[selectedModelData.id])}
+              disabled={selectedModelData.id === 'chrome' && !chromeAiAvailable}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 modelEnabled[selectedModelData.id] ? 'bg-black' : 'bg-gray-300'
-              }`}
+              } ${selectedModelData.id === 'chrome' && !chromeAiAvailable ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             >
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -414,6 +526,15 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
               />
             </button>
           </div>
+          
+          {/* Inline error message for Chrome AI - Only show if user clicked toggle */}
+          {selectedModelData.id === 'chrome' && !chromeAiAvailable && inlineErrorShown && (
+            <div className="p-2 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-xs text-red-800">
+                Chrome Built-in AI cannot be enabled on your device. Please select another AI provider from the dropdown.
+              </p>
+            </div>
+          )}
           
           {/* Description */}
           <p className="text-sm text-gray-600">
@@ -444,26 +565,48 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
                 }`}
               />
               
-              {/* Show/Hide Toggle */}
-              <button
-                onClick={() => toggleKeyVisibility(selectedModelData.id)}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                disabled={!modelEnabled[selectedModelData.id]}
-              >
-                {showKeys[selectedModelData.id] ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2">
+                {/* Show/Hide Toggle */}
+                <button
+                  onClick={() => toggleKeyVisibility(selectedModelData.id)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  disabled={!modelEnabled[selectedModelData.id]}
+                >
+                  {showKeys[selectedModelData.id] ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+                
+                {/* Delete Button - Only show if key exists */}
+                {apiKeys[selectedModelData.id] && (
+                  <button
+                    onClick={() => showDeleteConfirmation(selectedModelData.id, selectedModelData.name)}
+                    className="text-red-400 hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
           )}
           
           {/* Chrome-specific message */}
           {selectedModelData.id === 'chrome' && (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-md">
-              <p className="text-sm text-green-800">
-                Chrome Built-in AI is automatically available and doesn't require an API key.
+            <div className={`p-3 border rounded-md ${
+              chromeAiAvailable 
+                ? 'bg-green-50 border-green-200' 
+                : 'bg-yellow-50 border-yellow-200'
+            }`}>
+              <p className={`text-sm ${
+                chromeAiAvailable 
+                  ? 'text-green-800' 
+                  : 'text-yellow-800'
+              }`}>
+                {chromeAiAvailable 
+                  ? 'Chrome Built-in AI is automatically available and doesn\'t require an API key.'
+                  : 'Your device is not compatible with Chrome Built-in AI. Please use another AI provider by adding an API key.'}
               </p>
             </div>
           )}
@@ -583,6 +726,15 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
           </div>
         )}
       </div>
+      
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmationDialog.isOpen}
+        title={confirmationDialog.title}
+        message={confirmationDialog.message}
+        onConfirm={handleConfirmDelete}
+        onClose={() => setConfirmationDialog({ isOpen: false, action: '', title: '', message: '' })}
+      />
     </div>
   );
 };

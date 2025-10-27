@@ -93,6 +93,7 @@ class TabSenseServiceWorker {
     this.messageHandlers.set('SAVE_API_KEY', this.handleSaveAPIKey.bind(this));
     this.messageHandlers.set('DELETE_API_KEY', this.handleDeleteAPIKey.bind(this));
     this.messageHandlers.set('TOGGLE_API_ENABLED', this.handleToggleAPIEnabled.bind(this));
+    this.messageHandlers.set('GET_API_ENABLED_STATES', this.handleGetAPIEnabledStates.bind(this));
     
     // Additional handlers
     this.messageHandlers.set('TAB_PROCESSED', this.handleTabProcessed.bind(this));
@@ -118,6 +119,7 @@ class TabSenseServiceWorker {
     this.messageHandlers.set('SUMMARIZE_MULTI_TAB', this.handleSummarizeMultiTab.bind(this));
     this.messageHandlers.set('ANSWER_MULTI_TAB_QUESTION', this.handleAnswerMultiTabQuestion.bind(this));
     this.messageHandlers.set('GET_EXTERNAL_CONTEXT', this.handleGetExternalContext.bind(this));
+    this.messageHandlers.set('EXTRACT_DATA_FROM_URL', this.handleExtractDataFromUrl.bind(this));
     
     console.log('[TabSense] Message handlers set up:', this.messageHandlers.size);
   }
@@ -138,11 +140,19 @@ class TabSenseServiceWorker {
     // Setup Chrome listeners
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const action = message.action || 'UNKNOWN';
-      console.log('[TabSense] Received message:', action);
+      console.log('[TabSense] Received message:', action, 'Payload:', message);
+      
+      // Extract payload - support both payload object and flat message structure
+      let payload = message.payload || {};
+      if (Object.keys(payload).length === 0 && Object.keys(message).length > 1) {
+        // Message is flat structure, remove action to get payload
+        const { action: _, ...rest } = message;
+        payload = rest;
+      }
       
       const handler = this.messageHandlers.get(action);
       if (handler) {
-        const result = handler(message.payload || {}, sender);
+        const result = handler(payload, sender);
         Promise.resolve(result).then(sendResponse);
         return true;
       } else {
@@ -157,8 +167,106 @@ class TabSenseServiceWorker {
       chrome.sidePanel.open({ tabId: tab.id });
     });
 
+    // Listen for tab updates to auto-process tabs
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      // Only process when tab is complete and has a valid URL
+      if (changeInfo.status === 'complete' && tab.url && 
+          !tab.url.startsWith('chrome://') && 
+          !tab.url.startsWith('chrome-extension://') &&
+          !tab.url.startsWith('edge://') &&
+          !tab.url.startsWith('about:')) {
+        console.log('[TabSense] Tab loaded, checking if should auto-process:', tab.url);
+        
+        // Auto-process after a short delay to ensure page is ready
+        setTimeout(() => {
+          this.autoProcessTab(tab);
+        }, 1000);
+      }
+    });
+
     this.initialized = true;
     console.log('[TabSense] Service worker initialized');
+  }
+
+  async autoProcessTab(tab) {
+    try {
+      console.log('[TabSense] Auto-processing tab:', tab.url);
+      
+      // Filter out unwanted pages
+      const url = tab.url || '';
+      
+      // Don't process search engines, directory pages, or empty URLs
+      if (url.includes('google.com/search') ||
+          url.includes('bing.com/search') ||
+          url.includes('duckduckgo.com/?q=') ||
+          url.includes('yahoo.com/search') ||
+          url.match(/\/category\/|\/archive\/|\/tag\/|\/tags\//) ||
+          url.match(/bbc\.com\/(news|sport|culture)(?!\/[^\/]+\/)/)) {
+        console.log('[TabSense] Skipping filtered URL:', url);
+        return;
+      }
+      
+      // Inject content script and get page data
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: extractPageContent
+        });
+        
+        const extractedData = results[0]?.result || {};
+        
+        // Store tab data
+        const tabData = {
+          id: tab.id,
+          title: extractedData.title || tab.title || 'Untitled',
+          url: tab.url,
+          content: extractedData.content || `Content from ${tab.title || tab.url}`,
+          summary: extractedData.summary || 'Content extracted',
+          category: extractedData.category || 'generic',
+          processed: true,
+          timestamp: Date.now()
+        };
+        
+        // Get existing tabs and add this one
+        const result = await chrome.storage.local.get(['multi_tab_collection']);
+        const existingTabs = result.multi_tab_collection || [];
+        
+        // Check if tab already exists
+        const existingIndex = existingTabs.findIndex(t => t.id === tab.id);
+        
+        if (existingIndex >= 0) {
+          // Update existing tab
+          existingTabs[existingIndex] = tabData;
+        } else {
+          // Add new tab
+          existingTabs.push(tabData);
+        }
+        
+        await chrome.storage.local.set({ multi_tab_collection: existingTabs });
+        console.log('[TabSense] Tab auto-processed and stored:', tab.url);
+        
+        // Broadcast to UI that a tab was processed
+        this.broadcastMessage({
+          action: 'TAB_AUTO_PROCESSED',
+          data: tabData
+        });
+      } catch (error) {
+        console.error('[TabSense] Error extracting content from tab:', error);
+      }
+    } catch (error) {
+      console.error('[TabSense] Error auto-processing tab:', error);
+    }
+  }
+
+  broadcastMessage(message) {
+    console.log('[TabSense] Broadcasting message:', message.action);
+    try {
+      chrome.runtime.sendMessage(message).catch(() => {
+        // Ignore errors if no listeners
+      });
+    } catch (error) {
+      console.log('[TabSense] No listeners for broadcast message:', error.message);
+    }
   }
 
   async handlePing(payload, sender) {
@@ -167,7 +275,7 @@ class TabSenseServiceWorker {
         success: true,
         data: {
         pong: true, 
-        timestamp: Date.now(),
+      timestamp: Date.now(),
         initialized: this.initialized 
       }
     };
@@ -175,11 +283,11 @@ class TabSenseServiceWorker {
 
   async handleGetStatus(payload, sender) {
     console.log('[TabSense] GET_STATUS received');
-      return {
+    return {
         success: true,
         data: {
         status: 'ready',
-        initialized: this.initialized,
+      initialized: this.initialized,
         handlers: Array.from(this.messageHandlers.keys())
       }
     };
@@ -308,8 +416,8 @@ class TabSenseServiceWorker {
       const allData = await chrome.storage.local.get();
       const dataSize = JSON.stringify(allData).length;
 
-      return {
-        success: true,
+          return {
+            success: true,
         data: {
           stats: {
             summaries: (allData.tab_summaries?.length || 0) + (allData.processed_tabs?.length || 0),
@@ -382,9 +490,9 @@ class TabSenseServiceWorker {
       }
       
       // No context - just placeholder
-      return {
-        success: true,
-        data: {
+          return {
+            success: true,
+            data: {
           answer: 'AI response functionality coming soon. Please ask a question about your tabs.',
           sources: [],
           confidence: 0.5
@@ -408,10 +516,10 @@ class TabSenseServiceWorker {
           action: 'SUMMARIZE_TEXT',
           payload: { text }
         });
-        
-        if (response && response.success) {
-          return {
-            success: true,
+
+      if (response && response.success) {
+        return {
+          success: true,
             data: response.data
           };
         }
@@ -479,7 +587,7 @@ class TabSenseServiceWorker {
           
           const extractedData = results[0]?.result || {};
 
-      return {
+        return {
             id: tab.id,
             title: extractedData.title || tab.title || 'Untitled',
             url: tab.url,
@@ -595,7 +703,7 @@ class TabSenseServiceWorker {
   }
 
   async handleSaveAPIKey(payload, sender) {
-    console.log('[TabSense] SAVE_API_KEY received');
+    console.log('[TabSense] SAVE_API_KEY received with payload:', payload);
     try {
       const { provider, apiKey, type = 'other' } = payload || {};
       
@@ -638,7 +746,7 @@ class TabSenseServiceWorker {
         success: true,
         data: { message: 'API key deleted successfully' }
       };
-    } catch (error) {
+      } catch (error) {
       console.error('[TabSense] Error deleting API key:', error);
       return { success: false, error: error.message };
     }
@@ -669,6 +777,49 @@ class TabSenseServiceWorker {
     }
   }
 
+  async handleGetAPIEnabledStates(payload, sender) {
+    console.log('[TabSense] GET_API_ENABLED_STATES received');
+    try {
+      const result = await chrome.storage.local.get(['ai_api_enabled', 'other_api_enabled', 'chrome_ai_available']);
+      
+      // Check Chrome AI availability if not already checked
+      let chromeAiAvailable = result.chrome_ai_available;
+      if (chromeAiAvailable === undefined) {
+        chromeAiAvailable = await this.checkChromeAIAvailability();
+        await chrome.storage.local.set({ chrome_ai_available: chromeAiAvailable });
+      }
+      
+      return {
+        success: true,
+        data: {
+          ai_enabled: result.ai_api_enabled || {},
+          other_enabled: result.other_api_enabled || {},
+          chrome_ai_available: chromeAiAvailable
+        }
+      };
+    } catch (error) {
+      console.error('[TabSense] Error getting API enabled states:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async checkChromeAIAvailability() {
+    try {
+      // Check if Chrome AI APIs are available
+      if (chrome.readingMode && chrome.ai) {
+        // Try to create a reading mode reader to test availability
+        const reader = await chrome.readingMode.createReader();
+        if (reader) {
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.log('[TabSense] Chrome AI not available:', error.message);
+      return false;
+    }
+  }
+
   async handleTabProcessed(payload, sender) {
     console.log('[TabSense] TAB_PROCESSED received');
     try {
@@ -679,9 +830,9 @@ class TabSenseServiceWorker {
         const existingIndex = tabs.findIndex(t => t.id === tabId);
         if (existingIndex >= 0) {
           tabs[existingIndex] = { ...tabs[existingIndex], ...data };
-        } else {
+      } else {
           tabs.push({ id: tabId, ...data });
-        }
+      }
         await chrome.storage.local.set({ processed_tabs: tabs });
       }
       return { success: true };
@@ -882,7 +1033,7 @@ class TabSenseServiceWorker {
     try {
       const result = await chrome.storage.local.get(['config']);
       return { success: true, data: { config: result.config || {} } };
-    } catch (error) {
+        } catch (error) {
       console.error('[TabSense] Error getting config:', error);
       return { success: false, error: error.message };
     }
@@ -1012,6 +1163,46 @@ class TabSenseServiceWorker {
       };
     } catch (error) {
       console.error('[TabSense] Error getting external context:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async handleExtractDataFromUrl(payload, sender) {
+    console.log('[TabSense] EXTRACT_DATA_FROM_URL received');
+    try {
+      const { url } = payload || {};
+      
+      if (!url) {
+        return { success: false, error: 'URL is required' };
+      }
+      
+      // Try offscreen first for external API integration
+      try {
+        const response = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'EXTRACT_DATA_FROM_URL',
+          payload: { url }
+        });
+        
+        if (response && response.success) {
+          return { success: true, data: response.data };
+        }
+      } catch (offscreenError) {
+        console.log('[TabSense] Offscreen not available, using basic extraction');
+      }
+      
+      // Fallback: return basic URL data
+      return {
+        success: true,
+        data: {
+          url,
+          type: url.includes('youtube.com') ? 'youtube' : 'generic',
+          extracted: false,
+          message: 'External API extraction requires API keys'
+        }
+      };
+    } catch (error) {
+      console.error('[TabSense] Error extracting data from URL:', error);
       return { success: false, error: error.message };
     }
   }

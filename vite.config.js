@@ -20,9 +20,6 @@ export default defineConfig({
         // Offscreen document for heavy processing
         offscreen: resolve(__dirname, 'src/background/offscreen.js'),
         
-        // Heavy modules bundle
-        'heavy-modules': resolve(__dirname, 'src/background/heavy-modules.js'),
-        
         // Content scripts
         content: resolve(__dirname, 'src/content/content-script.js'),
         
@@ -38,7 +35,6 @@ export default defineConfig({
           // Keep background script as .js
           if (chunkInfo.name === 'background') return 'background.js';
           if (chunkInfo.name === 'offscreen') return 'offscreen.js';
-          if (chunkInfo.name === 'heavy-modules') return 'heavy-modules.js';
           if (chunkInfo.name === 'content') return 'content.js';
           if (chunkInfo.name === 'sidebar2') return 'sidebar2.js';
           return '[name].js';
