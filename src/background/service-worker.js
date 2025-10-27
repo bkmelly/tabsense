@@ -128,23 +128,8 @@ class TabSenseServiceWorker {
   async initialize() {
     console.log('[TabSense] Starting initialization...');
     
-    // Create offscreen document if needed
-    try {
-      await chrome.offscreen.hasDocument().then(async (hasOffscreenDoc) => {
-        if (!hasOffscreenDoc) {
-          await chrome.offscreen.createDocument({
-            url: 'offscreen.html',
-            reasons: ['DOM_SCRAPING'],
-            justification: 'Heavy AI processing for adaptive summarization'
-          });
-          console.log('[TabSense] Offscreen document created');
-        } else {
-          console.log('[TabSense] Offscreen document already exists');
-        }
-      });
-    } catch (error) {
-      console.log('[TabSense] Error creating offscreen document:', error.message);
-    }
+    // Create offscreen document for heavy processing
+    await this.createOffscreenDocument();
     
     // Clear any stale tab data on startup
     try {
@@ -207,6 +192,56 @@ class TabSenseServiceWorker {
     console.log('[TabSense] Service worker initialized');
   }
 
+  async createOffscreenDocument() {
+    try {
+      // Check if offscreen document already exists
+      const hasOffscreen = await chrome.offscreen.hasDocument();
+      console.log('[TabSense] Checking offscreen document existence:', hasOffscreen);
+      
+      if (hasOffscreen) {
+        console.log('[TabSense] Offscreen document already exists');
+        // Send a test message to see if it's responsive
+        try {
+          const response = await chrome.runtime.sendMessage({
+            target: 'offscreen',
+            action: 'PING_OFFSCREEN',
+            payload: { message: 'Test from service worker' }
+          });
+          console.log('[TabSense] Offscreen document is responsive:', response);
+        } catch (error) {
+          console.warn('[TabSense] Offscreen document exists but not responsive:', error.message);
+        }
+        return;
+      }
+
+      // Create offscreen document
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['DOM_SCRAPING'],
+        justification: 'AI summarization and heavy content processing'
+      });
+      console.log('[TabSense] ✅ Offscreen document created');
+      
+      // Wait a moment for it to initialize
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Send a test message
+      try {
+        const response = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'PING_OFFSCREEN',
+          payload: { message: 'Test from service worker' }
+        });
+        console.log('[TabSense] Offscreen document responded to ping:', response);
+      } catch (error) {
+        console.warn('[TabSense] Offscreen document created but not responsive:', error.message);
+      }
+    } catch (error) {
+      console.log('[TabSense] Offscreen document creation failed:', error.message, error);
+      // Continue anyway - offscreen may not be needed for basic functionality
+    }
+  }
+
   async autoProcessTab(tab) {
     try {
       console.log('[TabSense] Auto-processing tab:', tab.url);
@@ -247,39 +282,39 @@ class TabSenseServiceWorker {
           try {
             console.log('[TabSense] Calling adaptive summarizer with content length:', extractedData.content.length);
             
-            const summaryResponse = await new Promise((resolve) => {
-              const message = {
+            // Try offscreen adaptive summarizer
+            try {
+              const response = await chrome.runtime.sendMessage({
                 target: 'offscreen',
                 action: 'ADAPTIVE_SUMMARIZE',
-                text: extractedData.content,
+                text: extractedData.content.substring(0, 10000), // Limit content
                 url: tab.url,
-                title: extractedData.title || tab.title,
+                title: extractedData.title,
                 metadata: {
-                  tabId: tab.id,
-                  extractedAt: new Date().toISOString(),
-                  wordCount: extractedData.wordCount
-                },
-                options: { length: 'medium' }
-              };
-              
-              console.log('[TabSense] Sending message to offscreen:', message);
-              
-              chrome.runtime.sendMessage(message, (response) => {
-                console.log('[TabSense] Received response from offscreen:', response);
-                resolve(response);
+                  category: extractedData.category,
+                  wordCount: extractedData.content.split(/\s+/).length
+                }
               });
-            });
-            
-            console.log('[TabSense] Adaptive summarizer response:', summaryResponse);
-            
-            if (summaryResponse && summaryResponse.success && summaryResponse.data) {
-              summary = summaryResponse.data.summary || summaryResponse.data;
-              console.log('[TabSense] ✅ Adaptive summary generated successfully, length:', summary.length);
-            } else {
-              console.log('[TabSense] ⚠️ Adaptive summary response invalid:', summaryResponse);
+              
+              if (response && response.success && response.data?.summary) {
+                summary = response.data.summary;
+                console.log('[TabSense] ✅ Adaptive summary generated successfully');
+              } else {
+                console.log('[TabSense] ⚠️ Adaptive summary failed, using basic extractive summary');
+                const sentences = extractedData.content.split(/[.!?]+/).filter(s => s.trim().length > 10);
+                summary = sentences.slice(0, 3).join('. ') + '.';
+              }
+            } catch (offscreenError) {
+              console.log('[TabSense] Offscreen not responding:', offscreenError.message);
+              // Fallback to basic summarization
+              const sentences = extractedData.content.split(/[.!?]+/).filter(s => s.trim().length > 10);
+              summary = sentences.slice(0, 3).join('. ') + '.';
             }
           } catch (summaryError) {
             console.error('[TabSense] Adaptive summary failed:', summaryError);
+            // Fallback to basic summarization
+            const sentences = extractedData.content.split(/[.!?]+/).filter(s => s.trim().length > 10);
+            summary = sentences.slice(0, 3).join('. ') + '.';
           }
         } else {
           console.log('[TabSense] Skipping adaptive summary - insufficient content');

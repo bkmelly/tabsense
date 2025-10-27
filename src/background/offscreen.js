@@ -9,7 +9,9 @@ import { enhancedCategorizer } from '../lib/enhancedCategorizer.js';
 import { AdaptiveSummarizer } from '../lib/adaptiveSummarizer.js';
 import { ContextEnhancer } from '../lib/contextEnhancer.js';
 
-console.log('[TabSense Offscreen] Offscreen document loaded');
+console.log('[TabSense Offscreen] ═══ Offscreen document loaded ═══');
+console.log('[TabSense Offscreen] Offscreen document URL:', window.location.href);
+console.log('[TabSense Offscreen] Chrome version:', chrome.runtime.getManifest().version);
 
 // Initialize heavy modules
 let credentialManager = null;
@@ -61,19 +63,29 @@ async function initializeHeavyModules() {
   console.log('[TabSense Offscreen] All heavy modules initialized');
 }
 
-// Listen for messages from service worker
+console.log('[TabSense Offscreen] ✅ Setting up message listener...');
+
+// Listen for messages from service worker - initialized early to catch messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[TabSense Offscreen] 📨 Message received! Target:', message.target, 'Action:', message.action, 'Full message:', message);
+  
   // Only handle messages meant for offscreen
   if (message.target !== 'offscreen') {
-    return; // Ignore messages not for us
+    console.log('[TabSense Offscreen] ⚠️ Ignoring message - target is not "offscreen"');
+    return false; // Don't keep channel open for messages not for us
   }
   
-  console.log('[TabSense Offscreen] Received message:', message.action, 'Full message:', message);
+  console.log('[TabSense Offscreen] ✅ Processing message for offscreen:', message.action, 'Full message:', message);
   
   const { action, payload, text, url, title, metadata, options } = message;
   
   // Route to appropriate handler
   switch (action) {
+    case 'PING_OFFSCREEN':
+      console.log('[TabSense Offscreen] 📩 PING_OFFSCREEN received, responding...');
+      sendResponse({ success: true, message: 'Offscreen document is alive and responding!' });
+      return true;
+      
     case 'GET_CREDENTIALS':
       handleGetCredentials(payload, sendResponse);
       return true; // Keep channel open
@@ -119,6 +131,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     default:
       console.warn('[TabSense Offscreen] Unknown action:', action);
       sendResponse({ error: 'Unknown action' });
+      return false;
   }
 });
 
@@ -173,16 +186,21 @@ async function handleCategorizeContent(payload, sendResponse) {
 }
 
 async function handleAdaptiveSummarize(payload, sendResponse) {
+  console.log('[TabSense Offscreen] 🔄 handleAdaptiveSummarize called with payload:', payload);
   try {
     if (!adaptiveSummarizer) {
+      console.log('[TabSense Offscreen] 🔄 Initializing adaptiveSummarizer...');
       await initializeHeavyModules();
     }
     const { text, options } = payload || {};
     
     if (!text) {
+      console.log('[TabSense Offscreen] ❌ No text provided in payload');
       sendResponse({ success: false, error: 'Text is required' });
       return;
     }
+    
+    console.log('[TabSense Offscreen] 📝 Summarizing text with length:', text.length);
     
     // AdaptiveSummarizer.summarize expects {url, title, content, metadata}
     const pageData = {
@@ -192,15 +210,20 @@ async function handleAdaptiveSummarize(payload, sendResponse) {
       metadata: payload.metadata || {}
     };
     
+    console.log('[TabSense Offscreen] 📊 Calling adaptiveSummarizer.summarize()...');
     const result = await adaptiveSummarizer.summarize(pageData, options?.length || 'medium');
     
+    console.log('[TabSense Offscreen] ✅ Summarization result:', result);
+    
     if (result && result.success) {
+      console.log('[TabSense Offscreen] ✅ Success! Sending response...');
       sendResponse({ success: true, data: result.data || result });
     } else {
+      console.log('[TabSense Offscreen] ❌ Summarization failed, error:', result?.error);
       sendResponse({ success: false, error: result?.error || 'Summarization failed' });
     }
   } catch (error) {
-    console.error('[TabSense Offscreen] Error in adaptive summarization:', error);
+    console.error('[TabSense Offscreen] ❌ Error in adaptive summarization:', error);
     sendResponse({ success: false, error: error.message });
   }
 }
@@ -369,5 +392,9 @@ async function handleExtractDataFromUrl(payload, sendResponse) {
 }
 
 // Initialize on load
-initializeHeavyModules();
+initializeHeavyModules().then(() => {
+  console.log('[TabSense Offscreen] ✅✅✅ INITIALIZATION COMPLETE - READY TO RECEIVE MESSAGES');
+}).catch((error) => {
+  console.error('[TabSense Offscreen] ❌ Initialization failed:', error);
+});
 
