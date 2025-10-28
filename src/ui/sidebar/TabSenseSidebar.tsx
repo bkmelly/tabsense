@@ -190,6 +190,8 @@ const TabSenseSidebar: React.FC = () => {
   const [isQAExpanded, setIsQAExpanded] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
+  const [mainSuggestedQuestions, setMainSuggestedQuestions] = useState<string[]>([]);
+  const [isRegeneratingMainQuestions, setIsRegeneratingMainQuestions] = useState(false);
   
   // Archive State
   const [isArchiveExpanded, setIsArchiveExpanded] = useState(false);
@@ -198,6 +200,8 @@ const TabSenseSidebar: React.FC = () => {
   const [isSummaryQAExpanded, setIsSummaryQAExpanded] = useState(false);
   const [selectedSummaryForQA, setSelectedSummaryForQA] = useState<TabSummary | null>(null);
   const [summaryQuestion, setSummaryQuestion] = useState("");
+  const [summarySuggestedQuestions, setSummarySuggestedQuestions] = useState<string[]>([]);
+  const [isRegeneratingSummaryQuestions, setIsRegeneratingSummaryQuestions] = useState(false);
 
   /**
    * Validate URL and clean it
@@ -562,24 +566,33 @@ const TabSenseSidebar: React.FC = () => {
             // Check if this is YouTube data
             const isYouTubeData = tab.type === 'youtube' || tab.video || tab.comments;
             
-            // Create key points
+            // Extract ONLY AI-generated key points from the summary
+            // Do NOT include any metadata like word count, page type, etc.
             let keyPoints: string[] = [];
-            if (isYouTubeData && tab.video) {
-              keyPoints = [
-                `📺 ${tab.video.channel || 'Unknown Channel'}`,
-                `👀 ${tab.video.views || 'Unknown views'}`,
-                `👍 ${tab.video.likes || 'Unknown likes'}`,
-                `💬 ${tab.comments?.length || 0} comments`,
-                tab.video.transcript ? `📝 Transcript available` : `📝 No transcript`
-              ];
-            } else {
-              keyPoints = [
-                `📊 Content extracted`,
-                `📖 ${tab.content?.length || 0} characters`,
-                `🏷️ ${tab.category || 'General'}`,
-                `👤 ${tab.author || 'Unknown author'}`
-              ];
+            
+            if (cleanSummary && cleanSummary.includes('**')) {
+              // Extract key points from the AI-generated summary
+              const keyPointsMatch = cleanSummary.match(/\*\*[Key Points|Key Facts|Key Takeaways]+\*\*[\s\S]*?(?=\n\*\*|$)/i);
+              if (keyPointsMatch) {
+                const keyPointsText = keyPointsMatch[0];
+                // Split by bullet points and filter out empty lines
+                const lines = keyPointsText.split('\n')
+                  .filter(line => line.trim().startsWith('•') || line.trim().startsWith('-') || line.trim().startsWith('*'))
+                  .map(line => line.replace(/^[•\-\*]\s*/, '').trim())
+                  .filter(line => line.length > 0 && 
+                    !line.includes('Content extracted') &&
+                    !line.includes('characters') &&
+                    !line.includes('Quality:') &&
+                    !line.includes('words') &&
+                    !line.includes('Page type:') &&
+                    !line.includes('Unknown author') &&
+                    !line.includes('generic')
+                  );
+                keyPoints = lines.slice(0, 6); // Limit to 6 key points
+              }
             }
+            
+            // Leave empty if no valid key points found - don't create fake ones
             
             return {
               id: `real-${index}`,
@@ -718,6 +731,13 @@ const TabSenseSidebar: React.FC = () => {
     loadConversationsFromArchive();
   }, []);
 
+  // Generate suggested questions when Q&A section expands or category changes
+  useEffect(() => {
+    if (isQAExpanded && showSuggestions) {
+      generateMainSuggestedQuestions();
+    }
+  }, [isQAExpanded, selectedCategory]);
+
   // Load conversations from backend
   const loadConversationsFromArchive = async () => {
     try {
@@ -769,6 +789,33 @@ const TabSenseSidebar: React.FC = () => {
     }
   };
 
+  // Generate AI suggested questions for main Q&A based on category
+  const generateMainSuggestedQuestions = async () => {
+    try {
+      const categoryTabs = filteredTabs;
+      const categorySummaries = categoryTabs
+        .filter(tab => tab.summary && tab.summary.length > 0)
+        .map(tab => tab.summary)
+        .join('\n\n');
+      
+      if (categorySummaries.length > 0) {
+        const questionsResponse = await sendMessageToServiceWorker({
+          action: 'GENERATE_SUGGESTED_QUESTIONS',
+          summary: categorySummaries.substring(0, 2000), // Limit for API
+          category: selectedCategory === 'all' ? 'generic' : selectedCategory,
+          title: `${categories.find(c => c.id === selectedCategory)?.label || 'All'} Content Query`
+        });
+        
+        if (questionsResponse.success && questionsResponse.data?.questions) {
+          setMainSuggestedQuestions(questionsResponse.data.questions);
+          console.log('[TabSense] Generated main suggested questions:', questionsResponse.data.questions);
+        }
+      }
+    } catch (error) {
+      console.error('[TabSense] Error generating main suggested questions:', error);
+    }
+  };
+
   const handleMainAskQuestion = async () => {
     if (!mainQuestion.trim() || isTyping) return;
     
@@ -806,9 +853,30 @@ const TabSenseSidebar: React.FC = () => {
         }];
       setMainMessages(finalMessages);
       
-      // Save to archive after first exchange
+      // Save to archive after first exchange with AI-generated title
       if (updatedMessages.length === 1) {
-        saveConversationToArchive(`Main Q&A: ${mainQuestion.substring(0, 30)}...`, finalMessages);
+        try {
+          // Generate AI title based on category and question
+          const categoryLabel = categories.find(c => c.id === selectedCategory)?.label || 'All';
+          const titleResponse = await sendMessageToServiceWorker({
+            action: 'GENERATE_CONVERSATION_TITLE',
+            messages: [{
+              role: 'assistant',
+              content: `${categoryLabel} Content: ${mainQuestion}`
+            }]
+          });
+          
+          const conversationTitle = titleResponse.success && titleResponse.data?.title
+            ? titleResponse.data.title
+            : `Q&A: ${categoryLabel} - ${mainQuestion.substring(0, 30)}`;
+          
+          saveConversationToArchive(conversationTitle, finalMessages);
+        } catch (error) {
+          console.error('[TabSense] Error generating main conversation title:', error);
+          // Fallback
+          const fallbackTitle = `Main Q&A: ${mainQuestion.substring(0, 30)}...`;
+          saveConversationToArchive(fallbackTitle, finalMessages);
+        }
       }
       } else {
         throw new Error(response.error || 'Failed to get AI response');
@@ -864,10 +932,29 @@ const TabSenseSidebar: React.FC = () => {
         }];
       setSummaryMessages(finalMessages);
       
-      // Save to archive after first exchange
+      // Save to archive after first exchange with AI-generated title from summary
       if (updatedMessages.length === 1) {
-        const summaryTitle = selectedSummaryForQA?.title || "Unknown Summary";
-        saveConversationToArchive(`Summary Q&A: ${summaryTitle} - ${summaryQuestion.substring(0, 20)}...`, finalMessages);
+        try {
+          // Generate AI title from summary content
+          const titleResponse = await sendMessageToServiceWorker({
+            action: 'GENERATE_CONVERSATION_TITLE',
+            messages: [{
+              role: 'assistant',
+              content: selectedSummaryForQA?.summary || 'Content summary'
+            }]
+          });
+          
+          const conversationTitle = titleResponse.success && titleResponse.data?.title
+            ? `Summary: ${titleResponse.data.title}`
+            : `Summary: ${selectedSummaryForQA?.title || 'Unknown Summary'}`;
+          
+          saveConversationToArchive(conversationTitle, finalMessages);
+        } catch (error) {
+          console.error('[TabSense] Error generating conversation title:', error);
+          // Fallback to simple title
+          const fallbackTitle = `Summary: ${selectedSummaryForQA?.title || 'Unknown Summary'}`;
+          saveConversationToArchive(fallbackTitle, finalMessages);
+        }
       }
       } else {
         throw new Error(response.error || 'Failed to get AI response');
@@ -933,35 +1020,21 @@ const TabSenseSidebar: React.FC = () => {
     setExpandedTabId(expandedTabId === tabId ? null : tabId);
   };
 
-  const openSummaryQA = (tab: TabSummary) => {
+  const openSummaryQA = async (tab: TabSummary) => {
     // Create a new conversation with the full summary
     const conversationId = `summary-${tab.id}-${Date.now()}`;
-    const conversationTitle = `Summary: ${tab.title}`;
     
-    // Create formatted summary message with proper icons and structure
-    const formattedContent = `**Summary**
-
-${tab.summary}
-
-**Key Points**
-${tab.keyPoints.map(point => `• ${point}`).join('\n')}
-
-${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map(item => `• ${item.label}: ${item.percentage}%`).join('\n')}\n` : ''}${tab.engagementScore ? `**Engagement Score**: ${tab.engagementScore}%\n` : ''}${tab.bias ? `**Bias**: ${tab.bias}\n` : ''}
-
-**Additional Context**
-• This is a comprehensive analysis of the content
-• The summary provides key insights and main points
-• Sentiment analysis helps understand the overall tone
-• Engagement metrics show how well the content performs
-
-**Technical Details**
-• Content has been processed and analyzed
-• Key themes have been extracted and categorized
-• The analysis includes both quantitative and qualitative insights
-• This summary can be used for further research and analysis
-
----
-*This conversation was created from the summary of "${tab.title}". You can now ask questions about this content.*`;
+    // Use the AI-generated summary as-is - it already has proper formatting
+    let formattedContent = tab.summary;
+    
+    // Remove any duplicate key points sections we might have added earlier
+    const keyPointsMatch = formattedContent.match(/\*\*Key (Points|Facts|Takeaways)\*\*[\s\S]*?(?=\n\*\*|$)/i);
+    if (keyPointsMatch && tab.keyPoints && tab.keyPoints.length > 0) {
+      // The summary already has key points from AI, don't add duplicate
+    } else if (tab.keyPoints && tab.keyPoints.length > 0) {
+      // Only add if summary doesn't have it and we have AI-generated key points
+      formattedContent += `\n\n**Key Points**\n${tab.keyPoints.map(point => `• ${point}`).join('\n')}`;
+    }
     
     const summaryMessage = {
       role: "assistant" as const,
@@ -975,6 +1048,24 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
     setSummaryIsMenuOpen(false);
     setSelectedSummaryForQA(tab);
     setIsSummaryQAExpanded(true);
+    
+    // Generate AI suggested questions based on the summary
+    try {
+      const questionsResponse = await sendMessageToServiceWorker({
+        action: 'GENERATE_SUGGESTED_QUESTIONS',
+        summary: tab.summary,
+        category: tab.category,
+        title: tab.title
+      });
+      
+      if (questionsResponse.success && questionsResponse.data?.questions) {
+        setSummarySuggestedQuestions(questionsResponse.data.questions);
+        console.log('[TabSense] Generated suggested questions:', questionsResponse.data.questions);
+      }
+    } catch (error) {
+      console.error('[TabSense] Error generating suggested questions:', error);
+      // Continue without questions - not critical
+    }
   };
 
   const closeSummaryQA = () => {
@@ -1090,6 +1181,29 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
               setSummaryIsMenuOpen(false);
               }}
             onClose={closeSummaryQA}
+            suggestedQuestions={summarySuggestedQuestions}
+            onRegenerateQuestions={async () => {
+              if (!selectedSummaryForQA) return;
+              setIsRegeneratingSummaryQuestions(true);
+              try {
+                const questionsResponse = await sendMessageToServiceWorker({
+                  action: 'GENERATE_SUGGESTED_QUESTIONS',
+                  summary: selectedSummaryForQA.summary,
+                  category: selectedSummaryForQA.category,
+                  title: selectedSummaryForQA.title
+                });
+                
+                if (questionsResponse.success && questionsResponse.data?.questions) {
+                  setSummarySuggestedQuestions(questionsResponse.data.questions);
+                  console.log('[TabSense] Regenerated suggested questions:', questionsResponse.data.questions);
+                }
+              } catch (error) {
+                console.error('[TabSense] Error regenerating suggested questions:', error);
+              } finally {
+                setIsRegeneratingSummaryQuestions(false);
+              }
+            }}
+            isRegeneratingQuestions={isRegeneratingSummaryQuestions}
             />
         ) : (
           <>
@@ -1272,6 +1386,28 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
                           </div>
                         )}
                         
+                        {/* Show first section preview when collapsed */}
+                        {expandedTabId !== tab.id && !tab.analyzing && tab.summary && (
+                          <div className="mt-2">
+                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+                              {(() => {
+                                // Extract just the Main Topic section for preview
+                                const mainTopicMatch = tab.summary.match(/(?:📌|📰)\s*\*\*Main Topic:\*\*\s*([^\n]+)/);
+                                if (mainTopicMatch && mainTopicMatch[1]) {
+                                  return mainTopicMatch[1].trim();
+                                }
+                                
+                                // Fallback: Extract the first section
+                                const firstSection = tab.summary.split('\n\n')[0] || tab.summary;
+                                const preview = firstSection.length > 150 
+                                  ? firstSection.substring(0, 150).replace(/^\*\*[^*]+\*\*\s*/, '').trim() + '...' 
+                                  : firstSection.replace(/^\*\*[^*]+\*\*\s*/, '').trim();
+                                return preview;
+                              })()}
+                            </p>
+                          </div>
+                        )}
+                        
                         {/* Expanded content */}
                         {expandedTabId === tab.id && !tab.analyzing && (
                           <div className="animate-fade-in mt-3 space-y-3 overflow-hidden">
@@ -1281,7 +1417,7 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
                                 <Brain className="w-4 h-4 text-primary" />
                                 <h4 className="text-xs font-bold text-foreground">Summary</h4>
                               </div>
-                              <p className="text-xs text-muted-foreground leading-relaxed pl-6 break-words">
+                              <p className="text-xs text-muted elemental leading-relaxed pl-6 break-words whitespace-pre-line">
                                 {tab.summary}
                               </p>
                             </div>
@@ -1424,6 +1560,36 @@ ${tab.sentimentBreakdown ? `**Sentiment Analysis**\n${tab.sentimentBreakdown.map
               console.log('Menu action:', action);
               setIsMenuOpen(false);
             }}
+            suggestedQuestions={mainSuggestedQuestions}
+            onRegenerateQuestions={async () => {
+              setIsRegeneratingMainQuestions(true);
+              try {
+                const categoryTabs = filteredTabs;
+                const categorySummaries = categoryTabs
+                  .filter(tab => tab.summary && tab.summary.length > 0)
+                  .map(tab => tab.summary)
+                  .join('\n\n');
+                
+                if (categorySummaries.length > 0) {
+                  const questionsResponse = await sendMessageToServiceWorker({
+                    action: 'GENERATE_SUGGESTED_QUESTIONS',
+                    summary: categorySummaries.substring(0, 2000),
+                    category: selectedCategory === 'all' ? 'generic' : selectedCategory,
+                    title: `${categories.find(c => c.id === selectedCategory)?.label || 'All'} Content Query`
+                  });
+                  
+                  if (questionsResponse.success && questionsResponse.data?.questions) {
+                    setMainSuggestedQuestions(questionsResponse.data.questions);
+                    console.log('[TabSense] Regenerated main suggested questions:', questionsResponse.data.questions);
+                  }
+                }
+              } catch (error) {
+                console.error('[TabSense] Error regenerating main suggested questions:', error);
+              } finally {
+                setIsRegeneratingMainQuestions(false);
+              }
+            }}
+            isRegeneratingQuestions={isRegeneratingMainQuestions}
           />
         )}
 

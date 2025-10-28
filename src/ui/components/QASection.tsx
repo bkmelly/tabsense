@@ -28,6 +28,9 @@ interface QASectionProps {
   onShareClick: () => void;
   onMenuAction: (action: string) => void;
   onClose?: () => void;
+  suggestedQuestions?: string[];
+  onRegenerateQuestions?: () => Promise<void>;
+  isRegeneratingQuestions?: boolean;
 }
 
 const QASection: React.FC<QASectionProps> = ({
@@ -42,110 +45,76 @@ const QASection: React.FC<QASectionProps> = ({
   onAskQuestion,
   onShareClick,
   onMenuAction,
-  onClose
+  onClose,
+  suggestedQuestions = [],
+  onRegenerateQuestions,
+  isRegeneratingQuestions = false
 }) => {
-  const suggestedQuestions = [
-    { text: "What is React?", icon: Lightbulb },
-    { text: "Explain React hooks", icon: ExternalLink },
-    { text: "Analyze sentiment in comments", icon: Smile },
-    { text: "What are the key differences between React and Vue?", icon: Lightbulb },
-    { text: "How does state management work in React?", icon: ExternalLink },
-    { text: "What are the best practices for React components?", icon: Smile },
-    { text: "Explain the React lifecycle methods", icon: Lightbulb },
-    { text: "How to optimize React performance?", icon: ExternalLink },
-    { text: "What is the difference between useState and useEffect?", icon: Lightbulb },
-    { text: "How to handle forms in React?", icon: ExternalLink },
-    { text: "What are React Context and Redux?", icon: Smile },
-    { text: "How to test React components?", icon: Lightbulb },
-    { text: "What is React Router?", icon: ExternalLink },
-    { text: "How to optimize React bundle size?", icon: Smile },
-    { text: "What are React Portals?", icon: Lightbulb },
-    { text: "How to handle errors in React?", icon: ExternalLink },
-    { text: "What is React Suspense?", icon: Lightbulb },
-    { text: "How to use React.memo?", icon: ExternalLink },
-    { text: "What are React Fragments?", icon: Smile },
-    { text: "How to implement React lazy loading?", icon: Lightbulb },
-    { text: "What is React Concurrent Mode?", icon: ExternalLink },
-    { text: "How to handle React state updates?", icon: Smile },
-    { text: "What are React Custom Hooks?", icon: Lightbulb },
-    { text: "How to optimize React re-renders?", icon: ExternalLink },
-    { text: "What is React Error Boundary?", icon: Smile },
-    { text: "How to use React DevTools?", icon: Lightbulb }
-  ];
+  // Empty fallback - let the empty state handle the UI when no questions are available
+  const fallbackQuestions: Array<{ text: string; icon: any }> = [];
 
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleShuffle = () => {
-    const shuffled = [...suggestedQuestions].sort(() => Math.random() - 0.5);
-    // You can implement shuffle logic here
-    console.log('Shuffled questions:', shuffled);
+    // Only shuffle if we have questions
+    if (suggestedQuestions.length > 0) {
+      const shuffled = [...suggestedQuestions].sort(() => Math.random() - 0.5);
+      console.log('Shuffled questions:', shuffled);
+    }
   };
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       <div className="p-4 pb-2">
-        {messages.length > 0 && messages[0].role === "assistant" && messages[0].content.includes("**Summary**") ? (
-          <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-              <Sparkles className="w-3 h-3 text-primary" />
-              Chrome Extension Development Guide
-        </h2>
-            <button
-              onClick={() => onClose ? onClose() : setIsCollapsed(!isCollapsed)}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronDown 
-                className={`w-3 h-3 transition-transform duration-200 ${
-                  isCollapsed ? 'rotate-180' : ''
-                }`}
-              />
-                </button>
-              </div>
-        ) : (
+        <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
             <Sparkles className="w-3 h-3 text-primary" />
-            Ask Questions
+            {messages.length > 0 && messages[0].role === "assistant" && messages[0].content.includes("**") ? "Conversation" : "Ask Questions"}
           </h2>
-        )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronDown className="w-3 h-3 transition-transform duration-200 rotate-180" />
+            </button>
+          )}
+        </div>
             </div>
             
-      <div className="flex-1 flex flex-col px-3 pb-4 relative">
+      <div className="flex-1 flex flex-col px-3 relative overflow-hidden">
         {!isCollapsed && (
           <>
-            {/* Text Area Component */}
-            <TextArea 
-              messages={messages} 
-              showSuggestions={showSuggestions} 
-              isTyping={isTyping} 
-            />
+            {/* Scrollable Text Area - Full height with padding at bottom */}
+            <div className="flex-1 overflow-hidden mb-2">
+              <TextArea 
+                messages={messages} 
+                showSuggestions={showSuggestions} 
+                isTyping={isTyping} 
+              />
+            </div>
 
-            {/* Suggested Questions Section - Absolutely positioned with white background */}
+            {/* Suggested Questions Section - Floating between text and input */}
             {showSuggestions && (
-              <div className="absolute bottom-16 left-3 right-3 bg-white rounded-lg border border-border/20 shadow-sm">
+              <div className="absolute left-3 right-3 bg-white rounded-lg border border-border/20 shadow-sm z-10"
+                   style={{ bottom: '72px' }}>
                 <SuggestedQuestionsSection
                   showSuggestions={showSuggestions}
                   setShowSuggestions={setShowSuggestions}
                   onQuestionClick={(question) => setQuestion(question)}
                   onShuffle={handleShuffle}
+                  onRegenerate={onRegenerateQuestions}
+                  isRegenerating={isRegeneratingQuestions}
+                  questions={suggestedQuestions}
+                  fallbackQuestions={fallbackQuestions}
                 />
           </div>
         )}
 
-                {/* Show suggestions button when hidden - Above input */}
-        {!showSuggestions && (
-                  <div className="absolute bottom-16 left-3 right-3 flex justify-center">
-            <button
-              onClick={() => setShowSuggestions(true)}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"
-            >
-              <Eye className="w-3 h-3" />
-              Show suggestions
-            </button>
-          </div>
-        )}
+                {/* Show suggestions button when hidden - Removed, will be in the input area */}
 
-            {/* Input Section - Absolutely positioned at bottom */}
-            <div className="absolute bottom-3 left-3 right-3">
+            {/* Input Section - Fixed at bottom */}
+            <div className="absolute bottom-2 left-3 right-3 z-20">
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Input
@@ -154,7 +123,7 @@ const QASection: React.FC<QASectionProps> = ({
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyPress={(e) => e.key === "Enter" && !isTyping && onAskQuestion()}
                 disabled={isTyping}
-                    className="w-full pr-20 bg-muted/30 hover:bg-muted/50 border-border/20 focus:border-primary/50 transition-all"
+                    className="w-full pr-20 bg-white hover:bg-gray-50 border-border/20 focus:border-primary/50 transition-all shadow-sm"
               />
               <button
                 onClick={onAskQuestion}
@@ -169,6 +138,17 @@ const QASection: React.FC<QASectionProps> = ({
               </button>
             </div>
                 <div className="flex gap-1">
+                  {!showSuggestions && (
+                    <Button 
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setShowSuggestions(true)}
+                      className="h-10 w-10 hover:bg-muted/50"
+                      title="Show suggestions"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button 
                     size="icon"
                     variant="ghost"

@@ -8,18 +8,31 @@ console.log('[TabSense] Service worker loaded');
 // AI Provider Manager - Plain JavaScript, no imports
 class AIProviderManager {
   constructor() {
+    // Gemini models in order of preference
+    this.geminiModels = [
+      'gemini-2.0-flash-exp',  // Latest experimental
+      'gemini-2.0-flash',      // Stable 2.0
+      'gemini-1.5-pro-latest', // Latest 1.5 Pro
+      'gemini-1.5-pro',        // Stable 1.5 Pro
+      'gemini-1.5-flash-latest', // Latest 1.5 Flash
+      'gemini-1.5-flash'       // Stable 1.5 Flash
+    ];
+    
     this.providers = {
       gemini: {
         name: 'Google Gemini',
-        endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
+        endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
+        models: this.geminiModels
       },
       openai: {
         name: 'OpenAI',
-        endpoint: 'https://api.openai.com/v1/chat/completions'
+        endpoint: 'https://api.openai.com/v1/chat/completions',
+        model: 'gpt-4'
       },
       anthropic: {
         name: 'Anthropic Claude',
-        endpoint: 'https://api.anthropic.com/v1/messages'
+        endpoint: 'https://api.anthropic.com/v1/messages',
+        model: 'claude-3-5-sonnet-20241022'
       }
     };
     
@@ -30,66 +43,66 @@ class AIProviderManager {
   initializeTemplates() {
     return {
       news: {
-        medium: `Create a detailed news summary (300 words):
+        medium: `Create a detailed news summary (300 words) with engaging visual formatting:
 
-**Overview:** [2-3 sentences combining main points]
+📰 **Overview:** [2-3 sentences combining main points]
 
-**Key Points:**
-• **Topic 1:** [Most important fact]
-• **Topic 2:** [Second most important fact]  
-• **Topic 3:** [Third most important fact]
+🎯 **Key Points:**
+• [Most important fact]
+• [Second most important fact]  
+• [Third most important fact]
 
-**Context:** [2-3 sentences providing background]
+📖 **Context:** [2-3 sentences providing background]
 
-**Details:**
+💡 **Important Details:**
 • [Important detail 1]
 • [Important detail 2]
 
-Use consistent bullet points (•) and avoid redundant information.`
+Use emojis and clear formatting for reader appeal.`
       },
       blog: {
-        medium: `Create a detailed blog summary (300 words):
+        medium: `Create a detailed blog summary (300 words) with engaging visual formatting:
 
-**Main Argument:** [2-3 sentences: Core thesis and context]
+💭 **Main Argument:** [2-3 sentences: Core thesis and context]
 
-**Supporting Points:**
-• **Point 1:** [Detailed explanation]
-• **Point 2:** [Detailed explanation]
-• **Point 3:** [Detailed explanation]
+🔑 **Supporting Points:**
+• [Detailed explanation point 1]
+• [Detailed explanation point 2]
+• [Detailed explanation point 3]
 
-**Author's Stance:** [Detailed: Positive/Negative/Neutral with reasoning]
+👤 **Author's Stance:** [Positive/Negative/Neutral with reasoning]
 
 Focus on argument structure and author's perspective.`
       },
       youtube: {
-        medium: `Create a detailed YouTube video summary (300 words):
+        medium: `Create a detailed YouTube video summary (300 words) with engaging visual formatting:
 
-**Video Title:** [The video title]
+🎥 **Video Title:** [The video title]
 
-**Main Topic:** [What is the video about?]
+🎯 **Main Topic:** [What is the video about?]
 
-**Key Takeaways:**
-• **[Topic 1]:** [Key point explained]
-• **[Topic 2]:** [Key point explained]
-• **[Topic 3]:** [Key point explained]
+✨ **Key Takeaways:**
+• [Key point explained 1]
+• [Key point explained 2]
+• [Key point explained 3]
 
-**Host's Viewpoint:** [What position/opinion does the host take?]
+💬 **Host's Viewpoint:** [What position/opinion does the host take?]
 
 Focus on actionable insights and main arguments.`
       },
       generic: {
-        medium: `Create a concise summary (300 words):
+        medium: `Create a concise, visually appealing summary (300 words):
 
-**Main Topic:** [What is this about?]
+📌 **Main Topic:** [What is this about?]
 
-**Key Points:**
+🔑 **Key Points:**
 • [Main point 1]
 • [Main point 2]
 • [Main point 3]
 
-**Summary:** [Brief overview]
+📝 **Summary:** [Brief overview - 2-3 sentences]
 
-Focus on the most important information.`
+Focus on the most important information with clear formatting.`
       }
     };
   }
@@ -137,16 +150,41 @@ Focus on the most important information.`
     const prompt = `${template}\n\nArticle content:\n${content.substring(0, 20000)}`;
     
     if (providerName === 'gemini') {
-      requestUrl = `${provider.endpoint}?key=${apiKey}`;
-      requestBody = {
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1000
+      // Try each Gemini model in order
+      for (const model of provider.models) {
+        try {
+          requestUrl = `${provider.endpoint}/${model}:generateContent?key=${apiKey}`;
+          requestBody = {
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 1000
+            }
+          };
+          
+          const response = await fetch(requestUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`[AIProviderManager] ✅ Success with Gemini model: ${model}`);
+            return data.candidates[0].content.parts[0].text;
+          }
+          
+          console.log(`[AIProviderManager] ❌ Model ${model} failed: ${response.status}`);
+        } catch (error) {
+          console.log(`[AIProviderManager] ❌ Model ${model} error: ${error.message}`);
+          continue;
         }
-      };
+      }
+      
+      // All Gemini models failed
+      throw new Error('All Gemini models failed');
     } else if (providerName === 'openai') {
       requestUrl = provider.endpoint;
       requestBody = {
@@ -184,7 +222,16 @@ Focus on the most important information.`
     });
     
     if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
+      // Get error details if available
+      let errorDetails = '';
+      try {
+        const errorData = await response.json();
+        errorDetails = errorData.error?.message || errorData.message || '';
+      } catch (e) {
+        // Ignore JSON parse errors
+      }
+      
+      throw new Error(`API request failed: ${response.status} ${response.statusText}${errorDetails ? ' - ' + errorDetails : ''}`);
     }
     
     const data = await response.json();
@@ -223,7 +270,11 @@ Focus on the most important information.`
         console.log(`[AIProviderManager] ✅ Success with ${provider.name}`);
         return { success: true, summary, provider: provider.name };
       } catch (error) {
-        console.log(`[AIProviderManager] ❌ ${provider.name} failed:`, error.message);
+        console.log(`[AIProviderManager] ❌ ${provider.name} failed: ${error.message}`);
+        // For 503 errors (Service Unavailable), log additional context
+        if (error.message.includes('503')) {
+          console.log(`[AIProviderManager] ⚠️ ${provider.name} is temporarily unavailable. This might be due to: rate limiting, temporary service outage, or API quota exceeded.`);
+        }
         continue;
       }
     }
@@ -317,6 +368,8 @@ class TabSenseServiceWorker {
     // AI handlers (placeholder implementations)
     this.messageHandlers.set('ANSWER_QUESTION', this.handleAnswerQuestion.bind(this));
     this.messageHandlers.set('SUMMARIZE_TEXT', this.handleSummarizeText.bind(this));
+    this.messageHandlers.set('GENERATE_CONVERSATION_TITLE', this.handleGenerateConversationTitle.bind(this));
+    this.messageHandlers.set('GENERATE_SUGGESTED_QUESTIONS', this.handleGenerateSuggestedQuestions.bind(this));
     
     // Processing handlers
     this.messageHandlers.set('PROCESS_ALL_TABS', this.handleProcessAllTabs.bind(this));
@@ -591,11 +644,28 @@ class TabSenseServiceWorker {
   async handleSaveConversationToArchive(payload, sender) {
     console.log('[TabSense] SAVE_CONVERSATION_TO_ARCHIVE received');
     try {
+      const { title, messages } = payload || {};
+      
+      if (!title || !messages) {
+        return { success: false, error: 'Title and messages are required' };
+      }
+      
+      const conversationId = `conv-${Date.now()}`;
+      const conversation = {
+        id: conversationId,
+        title,
+        messages,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
       const result = await chrome.storage.local.get(['archive_conversations']);
       const conversations = result.archive_conversations || [];
-      conversations.unshift(payload);
+      conversations.unshift(conversation);
       await chrome.storage.local.set({ archive_conversations: conversations });
-      return { success: true };
+      
+      console.log('[TabSense] Saved conversation to archive:', title);
+      return { success: true, data: { conversationId } };
     } catch (error) {
       console.error('[TabSense] Error saving conversation:', error);
       return { success: false, error: error.message };
@@ -702,7 +772,7 @@ class TabSenseServiceWorker {
             success: true,
         data: {
           stats: {
-            summaries: (allData.tab_summaries?.length || 0) + (allData.processed_tabs?.length || 0),
+            summaries: allData.multi_tab_collection?.length || 0,
             conversations: allData.archive_conversations?.length || 0,
             settings: 1, // There's always at least a config object
             totalSize: this.formatBytes(dataSize)
@@ -724,15 +794,13 @@ class TabSenseServiceWorker {
   async handleClearCache(payload, sender) {
     console.log('[TabSense] CLEAR_CACHE received');
     try {
-      // Remove all cache and summary data
-      await chrome.storage.local.remove([
-        'cache',
-        'processed_tabs',
-        'tab_summaries',
-        'multi_tab_collection'
-      ]);
-      console.log('[TabSense] Cleared all cache and summary data');
-      return { success: true };
+      // Remove only cache keys (those with cachePrefix)
+      const allData = await chrome.storage.local.get();
+      const cacheKeys = Object.keys(allData).filter(key => key.startsWith('tabSense_cache_'));
+      
+      await chrome.storage.local.remove(cacheKeys);
+      console.log('[TabSense] Cleared cache keys:', cacheKeys.length);
+      return { success: true, data: { clearedKeys: cacheKeys.length } };
     } catch (error) {
       console.error('[TabSense] Error clearing cache:', error);
       return { success: false, error: error.message };
@@ -760,24 +828,199 @@ class TabSenseServiceWorker {
           `${i + 1}. ${tab.title}: ${tab.summary || 'No summary available'}`
         ).join('\n\n');
         
-        // Simple placeholder response that uses the context
-      return {
-        success: true,
-        data: {
-            answer: `Based on ${context.length} tab(s):\n\n${contextSummary}\n\nThis is a placeholder response. AI integration coming soon.`,
-            sources: context.map(tab => ({ title: tab.title, url: tab.url })),
-            confidence: 0.7
+        // Build AI prompt for answering the question
+        const contextPrompt = context.map((tab, i) => 
+          `Document ${i + 1} (${tab.title} - ${tab.url}):\n${tab.summary || 'No summary available'}\nCategory: ${tab.category || 'generic'}\n---`
+        ).join('\n\n');
+        
+        const fullPrompt = `You are an intelligent research assistant. Answer the following question based on the provided context from ${context.length} tab(s).
+
+Context from tabs:
+${contextPrompt}
+
+Question: ${question}
+
+Instructions:
+- Provide a clear, concise answer based on the context
+- If the context doesn't contain enough information, state that clearly
+- Cite which document(s) your answer is based on
+- Use natural, conversational language
+- Be specific and factual
+
+Answer:`;
+        
+        // Use AI to generate the answer - but call the AI directly without templates
+        try {
+          // Get enabled providers
+          const result = await chrome.storage.local.get(['ai_api_keys', 'ai_api_enabled']);
+          const keys = result.ai_api_keys || {};
+          const enabled = result.ai_api_enabled || {};
+          
+          // Filter enabled providers
+          const enabledProviders = Object.entries(enabled)
+            .filter(([_, isEnabled]) => isEnabled)
+            .map(([name, _]) => name);
+          
+          console.log(`[AIProviderManager] Enabled providers: ${enabledProviders.join(', ')}`);
+          console.log(`[AIProviderManager] Available keys: ${Object.keys(keys).join(', ')}`);
+          
+          // Try each enabled provider
+          for (const providerName of enabledProviders) {
+            const apiKey = keys[providerName];
+            if (!apiKey) {
+              console.log(`[AIProviderManager] No API key for ${providerName}`);
+              continue;
+            }
+            
+            console.log(`[AIProviderManager] Attempting ${providerName}...`);
+            
+            try {
+              const provider = this.aiProviderManager.providers[providerName];
+              if (!provider) continue;
+              
+              // Build headers and body based on provider type
+              let headers = { 'Content-Type': 'application/json' };
+              let body;
+              let endpoint;
+              
+              if (providerName === 'gemini') {
+                // Try each Gemini model until one works
+                for (const model of provider.models) {
+                  try {
+                    endpoint = `${provider.endpoint}/${model}:generateContent?key=${apiKey}`;
+                    body = {
+                      contents: [{ parts: [{ text: fullPrompt }] }],
+                      generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
+                    };
+                    
+                    const testResponse = await fetch(endpoint, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(body)
+                    });
+                    
+                    if (testResponse.ok) {
+                      const testData = await testResponse.json();
+                      const answer = testData.candidates[0].content.parts[0].text;
+                      
+                      if (answer) {
+                        console.log(`[AIProviderManager] ✅ Gemini model ${model} answered question`);
+                        
+                        // Clean up answer
+                        let cleanAnswer = answer.replace(/\*\*[^*]+\*\*/g, '').replace(/^[•\-\*]\s*/gm, '').trim();
+                        cleanAnswer = cleanAnswer.replace(/^\s*(Main Topic|Key Points|Summary|Overview|Details|Context|Important Details|Key Facts|Key Takeaways):/gim, '').trim();
+                        cleanAnswer = cleanAnswer.replace(/^(📰|📌|🎯|📖|💡|💭|🔑|👤|🎥|✨|💬)\s*/gim, '').trim();
+                        
+                        return {
+                          success: true,
+                          data: {
+                            answer: cleanAnswer,
+                            sources: context.map(tab => ({ title: tab.title, url: tab.url })),
+                            provider: `${providerName} (${model})`,
+                            confidence: 0.8
+                          }
+                        };
+                      }
+                    }
+                  } catch (modelError) {
+                    console.log(`[AIProviderManager] Model ${model} failed:`, modelError.message);
+                    continue;
+                  }
+                }
+                // All Gemini models failed for this question
+                continue;
+              } else if (providerName === 'openai') {
+                endpoint = provider.endpoint;
+                headers['Authorization'] = `Bearer ${apiKey}`;
+                body = {
+                  model: provider.model || 'gpt-4',
+                  messages: [{ role: 'user', content: fullPrompt }],
+                  max_tokens: 1000
+                };
+              } else if (providerName === 'anthropic') {
+                endpoint = provider.endpoint;
+                headers['x-api-key'] = apiKey;
+                headers['anthropic-version'] = '2023-06-01';
+                body = {
+                  model: provider.model || 'claude-3-5-sonnet-20241022',
+                  max_tokens: 1024,
+                  messages: [{ role: 'user', content: fullPrompt }]
+                };
+              }
+              
+              // Make direct API call without templates - just answer the question
+              const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(body)
+              });
+              
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.log(`[AIProviderManager] ❌ ${providerName} failed: API request failed: ${response.status}`);
+                continue;
+              }
+              
+              const data = await response.json();
+              
+              // Parse response based on provider type
+              let answer;
+              if (providerName === 'gemini') {
+                answer = data.candidates[0].content.parts[0].text;
+              } else if (providerName === 'openai') {
+                answer = data.choices[0].message.content;
+              } else if (providerName === 'anthropic') {
+                answer = data.content[0].text;
+              }
+              
+              if (!answer) continue;
+              
+              // Clean up any template-like formatting more aggressively
+              answer = answer.replace(/\*\*[^*]+\*\*/g, '').replace(/^[•\-\*]\s*/gm, '').trim();
+              answer = answer.replace(/^\s*(Main Topic|Key Points|Summary|Overview|Details|Context|Important Details|Key Facts|Key Takeaways):/gim, '').trim();
+              answer = answer.replace(/^(📰|📌|🎯|📖|💡|💭|🔑|👤|🎥|✨|💬)\s*/gim, '').trim();
+              
+              if (answer) {
+                console.log(`[AIProviderManager] ✅ ${providerName} answered question`);
+                return {
+                  success: true,
+                  data: {
+                    answer,
+                    sources: context.map(tab => ({ title: tab.title, url: tab.url })),
+                    provider: providerName,
+                    confidence: 0.8
+                  }
+                };
+              }
+            } catch (err) {
+              console.log(`[AIProviderManager] ${providerName} failed:`, err.message);
+              continue;
+            }
+          }
+        } catch (aiError) {
+          console.log('[TabSense] AI answer generation failed:', aiError.message);
+        }
+        
+        // All providers failed - don't provide a fallback answer
+        return {
+          success: false,
+          data: {
+            answer: 'I apologize, but I\'m currently unable to answer your question. The AI service is temporarily unavailable. Please try again later.',
+            sources: [],
+            provider: 'none',
+            confidence: 0
           }
         };
       }
       
-      // No context - just placeholder
+      // No context - explain to user
       return {
             success: true,
             data: {
-          answer: 'AI response functionality coming soon. Please ask a question about your tabs.',
+          answer: 'Please provide context by asking questions about your processed tabs. I need tab summaries to answer questions effectively.',
           sources: [],
-          confidence: 0.5
+          provider: 'none',
+          confidence: 0.3
         }
       };
     } catch (error) {
@@ -1498,6 +1741,139 @@ class TabSenseServiceWorker {
       console.error('[TabSense] Error extracting data from URL:', error);
       return { success: false, error: error.message };
     }
+  }
+  
+  async handleGenerateConversationTitle(payload, sender) {
+    console.log('[TabSense] GENERATE_CONVERSATION_TITLE received');
+    try {
+      const { messages } = payload || {};
+      
+      if (!messages || messages.length === 0) {
+        return { success: false, error: 'Messages required' };
+      }
+      
+      // Try to extract Main Topic from the summary (first assistant message)
+      const firstAssistantMessage = messages.find(m => m.role === 'assistant');
+      if (firstAssistantMessage && firstAssistantMessage.content) {
+        // Try to extract from emoji version
+        const emojiMatch = firstAssistantMessage.content.match(/(?:📰|📌)\s*\*\*Main Topic:\*\*\s*([^\n]+)/);
+        if (emojiMatch && emojiMatch[1]) {
+          let title = emojiMatch[1].trim();
+          if (title.length > 60) title = title.substring(0, 57) + '...';
+          return { success: true, data: { title } };
+        }
+        
+        // Try to extract from plain version
+        const plainMatch = firstAssistantMessage.content.match(/\*\*Main Topic:\*\*\s*([^\n]+)/);
+        if (plainMatch && plainMatch[1]) {
+          let title = plainMatch[1].trim();
+          if (title.length > 60) title = title.substring(0, 57) + '...';
+          return { success: true, data: { title } };
+        }
+      }
+      
+      // Fallback: use first user message
+      const firstUserMessage = messages.find(m => m.role === 'user');
+      if (firstUserMessage) {
+        let title = firstUserMessage.content.substring(0, 50);
+        if (title.length > 60) title = title.substring(0, 57) + '...';
+        return { success: true, data: { title } };
+      }
+      
+      // Final fallback
+      return { success: true, data: { title: 'Conversation' } };
+    } catch (error) {
+      console.error('[TabSense] Error generating conversation title:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
+  async handleGenerateSuggestedQuestions(payload, sender) {
+    console.log('[TabSense] GENERATE_SUGGESTED_QUESTIONS received');
+    try {
+      const { summary, category, title } = payload || {};
+      
+      if (!summary) {
+        return { success: false, error: 'Summary required' };
+      }
+      
+      // Generate questions using AI
+      try {
+        const prompt = `Based on this ${category || 'article'} summary about "${title || 'the content'}", generate 6 thoughtful questions a user might want to ask. Format as simple bullet points without numbering:\n\n${summary.substring(0, 1000)}\n\nQuestions:`;
+        
+        const questionsResult = await this.aiProviderManager.summarizeWithFallback(
+          prompt,
+          'https://suggested-questions.com'
+        );
+        
+        if (questionsResult.success) {
+          const text = questionsResult.summary;
+          let questions = text.split(/\n/)
+            .filter(q => q.trim().length > 10 && q.trim().endsWith('?'))
+            .map(q => q.replace(/^[-*•]\s*/, '').trim());
+          
+          if (questions.length === 0) {
+            questions = text.split(/[.!?]+/)
+              .filter(q => q.includes('?') && q.trim().length > 10)
+              .map(q => q.trim());
+          }
+          
+          const finalQuestions = questions.slice(0, 6);
+          
+          if (finalQuestions.length > 0) {
+            return { success: true, data: { questions: finalQuestions } };
+          }
+        }
+      } catch (aiError) {
+        console.log('[TabSense] AI questions generation failed:', aiError.message);
+      }
+      
+      // Fallback
+      const fallbackQuestions = this.getFallbackQuestions(category);
+      return { success: true, data: { questions: fallbackQuestions } };
+    } catch (error) {
+      console.error('[TabSense] Error generating suggested questions:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
+  getFallbackQuestions(category) {
+    const categoryQuestions = {
+      news: [
+        "What are the key facts in this news story?",
+        "What is the significance of this event?",
+        "Who are the main people mentioned?",
+        "When and where did this happen?",
+        "What are the implications of this news?",
+        "Are there any conflicting viewpoints?"
+      ],
+      blog: [
+        "What is the main argument of this blog post?",
+        "What evidence supports the author's claims?",
+        "What examples or case studies are provided?",
+        "What is the author's conclusion?",
+        "Are there any limitations mentioned?",
+        "What actionable insights can I take away?"
+      ],
+      youtube: [
+        "What is the main topic of this video?",
+        "What are the key takeaways?",
+        "Who is the creator and what is their perspective?",
+        "What practical tips or advice are shared?",
+        "Are there any interesting examples or demos?",
+        "What should I know about this topic?"
+      ],
+      generic: [
+        "What is the main topic covered?",
+        "What are the most important points?",
+        "What details stand out?",
+        "How can I apply this information?",
+        "What questions does this raise?",
+        "What should I remember about this?"
+      ]
+    };
+    
+    return categoryQuestions[category] || categoryQuestions.generic;
   }
 }
 
