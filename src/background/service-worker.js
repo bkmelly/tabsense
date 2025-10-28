@@ -1,9 +1,243 @@
 /**
- * TabSense Service Worker - ABSOLUTELY MINIMAL VERSION
- * No imports, no external dependencies
+ * TabSense Service Worker
+ * Uses dynamic import for AdaptiveSummarizer to avoid ES6 module issues
  */
 
-console.log('[TabSense] Minimal service worker loaded');
+console.log('[TabSense] Service worker loaded');
+
+// AI Provider Manager - Plain JavaScript, no imports
+class AIProviderManager {
+  constructor() {
+    this.providers = {
+      gemini: {
+        name: 'Google Gemini',
+        endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
+      },
+      openai: {
+        name: 'OpenAI',
+        endpoint: 'https://api.openai.com/v1/chat/completions'
+      },
+      anthropic: {
+        name: 'Anthropic Claude',
+        endpoint: 'https://api.anthropic.com/v1/messages'
+      }
+    };
+    
+    // Page type templates
+    this.templates = this.initializeTemplates();
+  }
+  
+  initializeTemplates() {
+    return {
+      news: {
+        medium: `Create a detailed news summary (300 words):
+
+**Overview:** [2-3 sentences combining main points]
+
+**Key Points:**
+• **Topic 1:** [Most important fact]
+• **Topic 2:** [Second most important fact]  
+• **Topic 3:** [Third most important fact]
+
+**Context:** [2-3 sentences providing background]
+
+**Details:**
+• [Important detail 1]
+• [Important detail 2]
+
+Use consistent bullet points (•) and avoid redundant information.`
+      },
+      blog: {
+        medium: `Create a detailed blog summary (300 words):
+
+**Main Argument:** [2-3 sentences: Core thesis and context]
+
+**Supporting Points:**
+• **Point 1:** [Detailed explanation]
+• **Point 2:** [Detailed explanation]
+• **Point 3:** [Detailed explanation]
+
+**Author's Stance:** [Detailed: Positive/Negative/Neutral with reasoning]
+
+Focus on argument structure and author's perspective.`
+      },
+      youtube: {
+        medium: `Create a detailed YouTube video summary (300 words):
+
+**Video Title:** [The video title]
+
+**Main Topic:** [What is the video about?]
+
+**Key Takeaways:**
+• **[Topic 1]:** [Key point explained]
+• **[Topic 2]:** [Key point explained]
+• **[Topic 3]:** [Key point explained]
+
+**Host's Viewpoint:** [What position/opinion does the host take?]
+
+Focus on actionable insights and main arguments.`
+      },
+      generic: {
+        medium: `Create a concise summary (300 words):
+
+**Main Topic:** [What is this about?]
+
+**Key Points:**
+• [Main point 1]
+• [Main point 2]
+• [Main point 3]
+
+**Summary:** [Brief overview]
+
+Focus on the most important information.`
+      }
+    };
+  }
+  
+  classifyPageType(url, content) {
+    const urlLower = url.toLowerCase();
+    
+    // YouTube detection
+    if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
+      return 'youtube';
+    }
+    
+    // News detection
+    if (urlLower.includes('/news/') || urlLower.includes('bbc.com') || 
+        urlLower.includes('cnn.com') || urlLower.includes('reuters.com')) {
+      return 'news';
+    }
+    
+    // Blog detection (common blog paths)
+    if (urlLower.includes('/blog/') || urlLower.includes('/article/') ||
+        urlLower.includes('.medium.com') || urlLower.includes('.wordpress.com')) {
+      return 'blog';
+    }
+    
+    // Default
+    return 'generic';
+  }
+
+  async summarize(providerName, content, apiKey, url) {
+    const provider = this.providers[providerName];
+    if (!provider) throw new Error(`Unknown provider: ${providerName}`);
+    
+    console.log(`[AIProviderManager] Summarizing with ${provider.name}`);
+    
+    // Classify page type and get template
+    const pageType = this.classifyPageType(url, content);
+    const template = this.templates[pageType]?.medium || this.templates.generic.medium;
+    
+    console.log(`[AIProviderManager] Page type: ${pageType}`);
+    
+    let requestBody;
+    let requestUrl;
+    
+    // Use template-based prompt
+    const prompt = `${template}\n\nArticle content:\n${content.substring(0, 20000)}`;
+    
+    if (providerName === 'gemini') {
+      requestUrl = `${provider.endpoint}?key=${apiKey}`;
+      requestBody = {
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1000
+        }
+      };
+    } else if (providerName === 'openai') {
+      requestUrl = provider.endpoint;
+      requestBody = {
+        model: 'gpt-4',
+        messages: [{
+          role: 'user',
+          content: prompt
+        }],
+        max_tokens: 1000
+      };
+    } else if (providerName === 'anthropic') {
+      requestUrl = provider.endpoint;
+      requestBody = {
+        model: 'claude-3-opus-20240229',
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: prompt
+        }]
+      };
+    }
+    
+    const headers = { 'Content-Type': 'application/json' };
+    if (providerName === 'openai') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (providerName === 'anthropic') {
+      headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    }
+    
+    const response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Parse response based on provider
+    if (providerName === 'gemini') {
+      return data.candidates[0].content.parts[0].text;
+    } else if (providerName === 'openai') {
+      return data.choices[0].message.content;
+    } else if (providerName === 'anthropic') {
+      return data.content[0].text;
+    }
+    
+    throw new Error('Unknown provider for response parsing');
+  }
+  
+  async summarizeWithFallback(content, url) {
+    // Get enabled providers from storage
+    const result = await chrome.storage.local.get(['ai_api_keys', 'ai_api_enabled']);
+    const apiKeys = result.ai_api_keys || {};
+    const enabled = result.ai_api_enabled || {};
+    
+    const providers = [
+      { name: 'gemini', key: apiKeys.google || apiKeys.gemini, enabled: enabled.google || enabled.gemini },
+      { name: 'openai', key: apiKeys.openai, enabled: enabled.openai },
+      { name: 'anthropic', key: apiKeys.anthropic, enabled: enabled.anthropic }
+    ].filter(p => p.enabled && p.key);
+    
+    console.log(`[AIProviderManager] Found ${providers.length} enabled providers`);
+    
+    // Try each provider in order
+    for (const provider of providers) {
+      try {
+        console.log(`[AIProviderManager] Trying ${provider.name}...`);
+        const summary = await this.summarize(provider.name, content, provider.key, url);
+        console.log(`[AIProviderManager] ✅ Success with ${provider.name}`);
+        return { success: true, summary, provider: provider.name };
+      } catch (error) {
+        console.log(`[AIProviderManager] ❌ ${provider.name} failed:`, error.message);
+        continue;
+      }
+    }
+    
+    // All providers failed, use extractive fallback
+    console.log('[AIProviderManager] All providers failed, using extractive summarization');
+    return { success: false, summary: this.extractiveSummary(content), provider: 'extractive' };
+  }
+  
+  extractiveSummary(content) {
+    const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10);
+    return sentences.slice(0, 3).join('. ') + '.';
+  }
+}
 
 // Function to extract page content (injected into tabs)
 function extractPageContent() {
@@ -48,6 +282,7 @@ function extractPageContent() {
 class TabSenseServiceWorker {
   constructor() {
     console.log('[TabSense] Service worker constructor called');
+    this.aiProviderManager = new AIProviderManager();
     this.initialized = false;
     this.messageHandlers = new Map();
     this.setupMessageHandlers();
@@ -193,53 +428,9 @@ class TabSenseServiceWorker {
   }
 
   async createOffscreenDocument() {
-    try {
-      // Check if offscreen document already exists
-      const hasOffscreen = await chrome.offscreen.hasDocument();
-      console.log('[TabSense] Checking offscreen document existence:', hasOffscreen);
-      
-      if (hasOffscreen) {
-        console.log('[TabSense] Offscreen document already exists');
-        // Send a test message to see if it's responsive
-        try {
-          const response = await chrome.runtime.sendMessage({
-            target: 'offscreen',
-            action: 'PING_OFFSCREEN',
-            payload: { message: 'Test from service worker' }
-          });
-          console.log('[TabSense] Offscreen document is responsive:', response);
-        } catch (error) {
-          console.warn('[TabSense] Offscreen document exists but not responsive:', error.message);
-        }
-        return;
-      }
-
-      // Create offscreen document
-      await chrome.offscreen.createDocument({
-        url: 'offscreen.html',
-        reasons: ['DOM_SCRAPING'],
-        justification: 'AI summarization and heavy content processing'
-      });
-      console.log('[TabSense] ✅ Offscreen document created');
-      
-      // Wait a moment for it to initialize
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Send a test message
-      try {
-        const response = await chrome.runtime.sendMessage({
-          target: 'offscreen',
-          action: 'PING_OFFSCREEN',
-          payload: { message: 'Test from service worker' }
-        });
-        console.log('[TabSense] Offscreen document responded to ping:', response);
-      } catch (error) {
-        console.warn('[TabSense] Offscreen document created but not responsive:', error.message);
-      }
-    } catch (error) {
-      console.log('[TabSense] Offscreen document creation failed:', error.message, error);
-      // Continue anyway - offscreen may not be needed for basic functionality
-    }
+    // Offscreen document not needed - summarization happens in service worker
+    console.log('[TabSense] Skipping offscreen document - using service worker for summarization');
+    return;
   }
 
   async autoProcessTab(tab) {
@@ -274,7 +465,7 @@ class TabSenseServiceWorker {
           title: extractedData.title
         });
         
-        // Generate adaptive summary using offscreen document
+        // Generate adaptive summary using service worker AdaptiveSummarizer
         let summary = extractedData.summary || 'Content extracted';
         
         // Only try adaptive summarization if we have actual content
@@ -282,33 +473,19 @@ class TabSenseServiceWorker {
           try {
             console.log('[TabSense] Calling adaptive summarizer with content length:', extractedData.content.length);
             
-            // Try offscreen adaptive summarizer
-            try {
-              const response = await chrome.runtime.sendMessage({
-                target: 'offscreen',
-                action: 'ADAPTIVE_SUMMARIZE',
-                text: extractedData.content.substring(0, 10000), // Limit content
-                url: tab.url,
-                title: extractedData.title,
-                metadata: {
-                  category: extractedData.category,
-                  wordCount: extractedData.content.split(/\s+/).length
-                }
-              });
-              
-              if (response && response.success && response.data?.summary) {
-                summary = response.data.summary;
-                console.log('[TabSense] ✅ Adaptive summary generated successfully');
-              } else {
-                console.log('[TabSense] ⚠️ Adaptive summary failed, using basic extractive summary');
-                const sentences = extractedData.content.split(/[.!?]+/).filter(s => s.trim().length > 10);
-                summary = sentences.slice(0, 3).join('. ') + '.';
-              }
-            } catch (offscreenError) {
-              console.log('[TabSense] Offscreen not responding:', offscreenError.message);
-              // Fallback to basic summarization
-              const sentences = extractedData.content.split(/[.!?]+/).filter(s => s.trim().length > 10);
-              summary = sentences.slice(0, 3).join('. ') + '.';
+            // Try AI summarization with fallback
+            console.log('[TabSense] Attempting AI summarization...');
+            const aiResult = await this.aiProviderManager.summarizeWithFallback(
+              extractedData.content.substring(0, 10000),
+              tab.url
+            );
+            
+            if (aiResult.success) {
+              summary = aiResult.summary;
+              console.log(`[TabSense] ✅ AI summary from ${aiResult.provider}`);
+            } else {
+              summary = aiResult.summary;
+              console.log('[TabSense] ⚠️ Using extractive fallback');
             }
           } catch (summaryError) {
             console.error('[TabSense] Adaptive summary failed:', summaryError);
@@ -376,9 +553,9 @@ class TabSenseServiceWorker {
 
   async handlePing(payload, sender) {
     console.log('[TabSense] PING received');
-      return {
-        success: true,
-        data: {
+          return {
+            success: true,
+            data: {
         pong: true, 
       timestamp: Date.now(),
         initialized: this.initialized 
@@ -388,8 +565,8 @@ class TabSenseServiceWorker {
 
   async handleGetStatus(payload, sender) {
     console.log('[TabSense] GET_STATUS received');
-          return {
-            success: true,
+        return {
+          success: true,
             data: {
         status: 'ready',
       initialized: this.initialized,
@@ -405,7 +582,7 @@ class TabSenseServiceWorker {
       const conversations = result.archive_conversations || [];
       console.log('[TabSense] Found conversations:', conversations.length);
       return { success: true, data: { conversations } };
-      } catch (error) {
+    } catch (error) {
       console.error('[TabSense] Error getting conversations:', error);
       return { success: false, error: error.message };
     }

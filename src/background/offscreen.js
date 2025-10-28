@@ -3,11 +3,10 @@
  * Handles heavy processing that would make service worker too large
  */
 
-import { CredentialManager } from '../lib/credentialManager.js';
+// Note: Some modules removed - they use chrome.storage.local which is not available in offscreen context
 import { ContentScorer } from '../lib/contentScorer.js';
 import { enhancedCategorizer } from '../lib/enhancedCategorizer.js';
 import { AdaptiveSummarizer } from '../lib/adaptiveSummarizer.js';
-import { ContextEnhancer } from '../lib/contextEnhancer.js';
 
 console.log('[TabSense Offscreen] ═══ Offscreen document loaded ═══');
 console.log('[TabSense Offscreen] Offscreen document URL:', window.location.href);
@@ -22,12 +21,9 @@ let contextEnhancer = null;
 async function initializeHeavyModules() {
   console.log('[TabSense Offscreen] Initializing heavy modules...');
   
-  try {
-    credentialManager = new CredentialManager();
-    console.log('[TabSense Offscreen] CredentialManager initialized');
-  } catch (error) {
-    console.error('[TabSense Offscreen] Failed to initialize CredentialManager:', error);
-  }
+  // Note: CredentialManager uses chrome.storage.local which is not available in offscreen context
+  // We skip it and request API keys from service worker instead when needed
+  console.log('[TabSense Offscreen] Skipping CredentialManager (not available in offscreen context)');
   
   try {
     contentScorer = new ContentScorer();
@@ -36,31 +32,16 @@ async function initializeHeavyModules() {
     console.error('[TabSense Offscreen] Failed to initialize ContentScorer:', error);
   }
   
-  try {
-    // Get API key from storage
-    const result = await chrome.storage.local.get(['ai_api_keys']);
-    const aiApiKeys = result.ai_api_keys || {};
-    const geminiApiKey = aiApiKeys.google || aiApiKeys.gemini;
-    
-    if (geminiApiKey) {
-      adaptiveSummarizer = new AdaptiveSummarizer(geminiApiKey, 'gemini-2.0-flash');
-      console.log('[TabSense Offscreen] AdaptiveSummarizer initialized with Gemini API key');
-    } else {
-      console.log('[TabSense Offscreen] No Gemini API key found, AdaptiveSummarizer will use fallback');
-      adaptiveSummarizer = new AdaptiveSummarizer();
-    }
-  } catch (error) {
-    console.error('[TabSense Offscreen] Failed to initialize AdaptiveSummarizer:', error);
-  }
+  // Note: AdaptiveSummarizer uses CachingManager and ContextEnhancer internally,
+  // both of which use chrome.storage.local. We cannot initialize it here.
+  // It will be created dynamically with API key when summarization is requested.
+  console.log('[TabSense Offscreen] Skipping AdaptiveSummarizer (uses storage-dependent modules)');
+  console.log('[TabSense Offscreen] It will be created on-demand with API key');
   
-  try {
-    contextEnhancer = new ContextEnhancer();
-    console.log('[TabSense Offscreen] ContextEnhancer initialized');
-  } catch (error) {
-    console.error('[TabSense Offscreen] Failed to initialize ContextEnhancer:', error);
-  }
+  // Note: ContextEnhancer might also use chrome.storage.local, skip it for now
+  console.log('[TabSense Offscreen] Skipping ContextEnhancer (may use storage not available in offscreen)');
   
-  console.log('[TabSense Offscreen] All heavy modules initialized');
+  console.log('[TabSense Offscreen] Heavy modules initialized');
 }
 
 console.log('[TabSense Offscreen] ✅ Setting up message listener...');
@@ -138,11 +119,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Handler implementations
 async function handleGetCredentials(payload, sendResponse) {
   try {
-    if (!credentialManager) {
-      await initializeHeavyModules();
-    }
-    const credentials = await credentialManager.getAll();
-    sendResponse({ credentials });
+    // CredentialManager not available in offscreen context
+    // Return error to indicate this functionality is not supported
+    console.warn('[TabSense Offscreen] CredentialManager not available in offscreen context');
+    sendResponse({ error: 'Credential management not supported in offscreen context' });
   } catch (error) {
     console.error('[TabSense Offscreen] Error getting credentials:', error);
     sendResponse({ error: error.message });
@@ -151,11 +131,9 @@ async function handleGetCredentials(payload, sendResponse) {
 
 async function handleSaveCredential(payload, sendResponse) {
   try {
-    if (!credentialManager) {
-      await initializeHeavyModules();
-    }
-    await credentialManager.save(payload.provider, payload.key);
-    sendResponse({ success: true });
+    // CredentialManager not available in offscreen context
+    console.warn('[TabSense Offscreen] CredentialManager not available in offscreen context');
+    sendResponse({ error: 'Credential management not supported in offscreen context' });
   } catch (error) {
     console.error('[TabSense Offscreen] Error saving credential:', error);
     sendResponse({ error: error.message });
@@ -188,10 +166,43 @@ async function handleCategorizeContent(payload, sendResponse) {
 async function handleAdaptiveSummarize(payload, sendResponse) {
   console.log('[TabSense Offscreen] 🔄 handleAdaptiveSummarize called with payload:', payload);
   try {
-    if (!adaptiveSummarizer) {
-      console.log('[TabSense Offscreen] 🔄 Initializing adaptiveSummarizer...');
-      await initializeHeavyModules();
+    // Request API keys from service worker since offscreen can't access chrome.storage.local
+    console.log('[TabSense Offscreen] 📤 Requesting API keys from service worker...');
+    let apiKeys = null;
+    try {
+      apiKeys = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          { action: 'GET_API_KEYS', type: 'ai' },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('[TabSense Offscreen] Error getting API keys:', chrome.runtime.lastError);
+              resolve(null);
+            } else {
+              resolve(response);
+            }
+          }
+        );
+      });
+    } catch (error) {
+      console.error('[TabSense Offscreen] Failed to get API keys:', error);
     }
+    
+    // Extract Gemini API key
+    const geminiKey = apiKeys?.data?.ai_api_keys?.google || apiKeys?.data?.ai_api_keys?.gemini;
+    console.log('[TabSense Offscreen] 🔑 Gemini API key available:', !!geminiKey);
+    
+    // Create AdaptiveSummarizer instance with the API key
+    if (geminiKey && !adaptiveSummarizer) {
+      console.log('[TabSense Offscreen] 🔄 Creating AdaptiveSummarizer with API key...');
+      adaptiveSummarizer = new AdaptiveSummarizer(geminiKey, 'gemini-2.0-flash');
+    }
+    
+    if (!adaptiveSummarizer) {
+      console.log('[TabSense Offscreen] ⚠️ No API key, AdaptiveSummarizer not available');
+      sendResponse({ success: false, error: 'No AI API key configured' });
+      return;
+    }
+    
     const { text, options } = payload || {};
     
     if (!text) {
@@ -210,6 +221,7 @@ async function handleAdaptiveSummarize(payload, sendResponse) {
       metadata: payload.metadata || {}
     };
     
+    // Call summarizer
     console.log('[TabSense Offscreen] 📊 Calling adaptiveSummarizer.summarize()...');
     const result = await adaptiveSummarizer.summarize(pageData, options?.length || 'medium');
     
@@ -230,32 +242,11 @@ async function handleAdaptiveSummarize(payload, sendResponse) {
 
 async function handleEnhanceContext(payload, sendResponse) {
   try {
-    if (!contextEnhancer) {
-      await initializeHeavyModules();
-    }
-    
-    const { pageData, contextType } = payload || {};
-    
-    if (!pageData || !pageData.title) {
-      sendResponse({ success: false, error: 'Page data with title is required' });
-      return;
-    }
-    
-    // ContextEnhancer expects {title, url, content, pageType}
-    const context = await contextEnhancer.getExternalContext({
-      title: pageData.title,
-      url: pageData.url || '',
-      content: pageData.content || '',
-      pageType: pageData.pageType || 'generic'
-    }, payload.apiKey);
-    
+    // ContextEnhancer not available in offscreen context (uses storage)
+    console.warn('[TabSense Offscreen] ContextEnhancer not available in offscreen context');
     sendResponse({ 
-      success: true, 
-      data: { 
-        title: pageData.title,
-        summary: context.summary || pageData.summary || 'No summary available',
-        context: context.context || []
-      } 
+      success: false, 
+      error: 'Context enhancement not supported in offscreen context' 
     });
   } catch (error) {
     console.error('[TabSense Offscreen] Error enhancing context:', error);
@@ -291,52 +282,15 @@ async function handleSummarizeText(payload, sendResponse) {
       return;
     }
     
-    if (!adaptiveSummarizer) {
-      await initializeHeavyModules();
-    }
-    
-    // Try to use adaptiveSummarizer if available
-    if (adaptiveSummarizer) {
-      const pageData = {
-        url: payload.url || '',
-        title: payload.title || '',
-        content: text,
-        metadata: {}
-      };
-      
-      const result = await adaptiveSummarizer.summarize(pageData, 'medium');
-      
-      if (result && result.success) {
-        sendResponse({ 
-          success: true, 
-          data: { 
-            summary: result.data?.summary || result.summary,
-            metadata: result.data?.metadata || result.metadata,
-            cached: result.data?.cached || result.cached
-          } 
-        });
-      } else {
-        // Fallback if summarizer fails
-        throw new Error(result?.error || 'Summarization failed');
-      }
-    } else {
-      // Fallback: simple extractive
-      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
-      const summary = sentences.slice(0, 3).join('. ') + '.';
-      sendResponse({ success: true, data: { summary } });
-    }
+    // AdaptiveSummarizer not available in offscreen context (uses storage)
+    // Provide fallback extractive summarization
+    console.log('[TabSense Offscreen] Using extractive fallback summarization');
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+    const summary = sentences.slice(0, 3).join('. ') + '.';
+    sendResponse({ success: true, data: { summary } });
   } catch (error) {
     console.error('[TabSense Offscreen] Error summarizing:', error);
-    
-    // Still provide fallback on error
-    try {
-      const { text } = payload || {};
-      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
-      const summary = sentences.slice(0, 3).join('. ') + '.';
-      sendResponse({ success: true, data: { summary } });
-    } catch (fallbackError) {
-      sendResponse({ success: false, error: error.message });
-    }
+    sendResponse({ success: false, error: error.message });
   }
 }
 

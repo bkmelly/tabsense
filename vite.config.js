@@ -32,7 +32,6 @@ export default defineConfig({
       },
       output: {
         entryFileNames: (chunkInfo) => {
-          // Keep background script as .js
           if (chunkInfo.name === 'background') return 'background.js';
           if (chunkInfo.name === 'offscreen') return 'offscreen.js';
           if (chunkInfo.name === 'content') return 'content.js';
@@ -40,9 +39,7 @@ export default defineConfig({
           return '[name].js';
         },
         assetFileNames: (assetInfo) => {
-          // Handle different asset types
           if (assetInfo.name?.endsWith('.html')) {
-            // Keep offscreen.html in root
             if (assetInfo.name.includes('offscreen')) return 'offscreen.html';
             return '[name].[ext]';
           }
