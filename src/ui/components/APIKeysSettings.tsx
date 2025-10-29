@@ -67,6 +67,15 @@ const otherAPIs: OtherAPI[] = [
     enabled: false,
     cost: "Free (with rate limits)",
     category: "Development"
+  },
+  {
+    id: "serper",
+    name: "Serper.dev API",
+    description: "Comprehensive web search API for AI-powered Q&A. Provides Google Search results optimized for LLM use.",
+    placeholder: "Enter your Serper.dev API Key",
+    enabled: false,
+    cost: "Paid (~$5 per 1,000 queries)",
+    category: "Search"
   }
 ];
 
@@ -165,8 +174,10 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
     youtube: false,
     reddit: false,
     news: false,
+    newsapi: false, // Also support newsapi key name
     twitter: false,
-    github: false
+    github: false,
+    serper: false
   });
   const [selectedOtherApi, setSelectedOtherApi] = useState<string>("youtube");
   

@@ -5,6 +5,344 @@
 
 console.log('[TabSense] Service worker loaded');
 
+// Web Search Service - Plain JavaScript, no imports
+class WebSearchService {
+  constructor() {
+    this.sources = {
+      wikipedia: 'https://en.wikipedia.org/api/rest_v1/page/summary/',
+      serper: 'https://google.serper.dev/search'
+    };
+  }
+
+  async hasAPIKey(service) {
+    try {
+      const result = await chrome.storage.local.get(['other_api_keys', 'other_api_enabled']);
+      const keys = result.other_api_keys || {};
+      const enabled = result.other_api_enabled || {};
+      return !!(enabled[service] && keys[service]);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async getAPIKey(service) {
+    try {
+      const result = await chrome.storage.local.get(['other_api_keys']);
+      const keys = result.other_api_keys || {};
+      return keys[service] || '';
+    } catch (error) {
+      return '';
+    }
+  }
+
+  async search(query, options = {}) {
+    const results = {
+      wikipedia: [],
+      news: [],
+      web: [],
+      sources: [],
+      totalResults: 0
+    };
+
+    console.log('[WebSearch] Starting search for:', query);
+
+    // 1. Wikipedia (always available, free)
+    try {
+      const wikiResults = await this.searchWikipedia(query);
+      if (wikiResults) {
+        results.wikipedia.push(wikiResults);
+        if (wikiResults.sources && wikiResults.sources.length > 0) {
+          results.sources.push(...wikiResults.sources);
+        }
+      }
+      console.log('[WebSearch] Wikipedia results:', results.wikipedia.length);
+    } catch (error) {
+      console.warn('[WebSearch] Wikipedia search failed:', error);
+    }
+
+    // 2. NewsAPI (if key available - check both 'news' and 'newsapi' for compatibility)
+    const hasNewsAPI = await this.hasAPIKey('newsapi') || await this.hasAPIKey('news');
+    if (hasNewsAPI) {
+      try {
+        const newsApiKey = await this.getAPIKey('newsapi') || await this.getAPIKey('news');
+        const newsResults = await this.searchNewsAPI(query, options.newsLimit || 5, newsApiKey);
+        results.news = newsResults;
+        if (newsResults.length > 0) {
+          results.sources.push(...newsResults.map(article => ({
+            title: article.title,
+            url: article.url,
+            description: article.description || ''
+          })));
+        }
+        console.log('[WebSearch] NewsAPI results:', results.news.length);
+      } catch (error) {
+        console.warn('[WebSearch] NewsAPI search failed:', error);
+      }
+    }
+
+    // 3. Serper.dev (if key available)
+    if (await this.hasAPIKey('serper')) {
+      try {
+        const serperResults = await this.searchSerper(query, options.serperLimit || 5);
+        results.web = serperResults;
+        if (serperResults.length > 0) {
+          results.sources.push(...serperResults.map(result => ({
+            title: result.title,
+            url: result.link,
+            description: result.snippet || ''
+          })));
+        }
+        console.log('[WebSearch] Serper.dev results:', results.web.length);
+      } catch (error) {
+        console.warn('[WebSearch] Serper.dev search failed:', error);
+      }
+    }
+
+    results.totalResults = results.wikipedia.length + results.news.length + results.web.length;
+    console.log('[WebSearch] Total results:', results.totalResults);
+    console.log('[WebSearch] Results breakdown:', {
+      wikipedia: results.wikipedia.length,
+      news: results.news.length,
+      web: results.web.length,
+      totalSources: results.sources.length
+    });
+
+    return results;
+  }
+
+  async searchWikipedia(query) {
+    try {
+      const searchQueries = this.generateWikipediaQueries(query);
+      
+      for (const searchQuery of searchQueries) {
+        const directUrl = `${this.sources.wikipedia}${encodeURIComponent(searchQuery)}`;
+        
+        try {
+          const response = await fetch(directUrl);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.extract && data.extract.length > 50) {
+              return {
+                type: 'wikipedia',
+                title: data.title,
+                abstract: data.extract,
+                url: data.content_urls?.desktop?.page || '',
+                sources: [{
+                  title: data.title,
+                  url: data.content_urls?.desktop?.page || '',
+                  description: data.extract.substring(0, 150) + '...'
+                }]
+              };
+            }
+          }
+        } catch (error) {
+          // Continue to next query
+        }
+
+        // Try Wikipedia search API
+        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&format=json&list=search&srsearch=${encodeURIComponent(searchQuery)}&srlimit=1&origin=*`;
+        try {
+          const searchResponse = await fetch(searchUrl);
+          if (searchResponse.ok) {
+            const searchData = await searchResponse.json();
+            if (searchData.query && searchData.query.search && searchData.query.search.length > 0) {
+              const pageTitle = searchData.query.search[0].title;
+              
+              const pageUrl = `${this.sources.wikipedia}${encodeURIComponent(pageTitle)}`;
+              const pageResponse = await fetch(pageUrl);
+              
+              if (pageResponse.ok) {
+                const pageData = await pageResponse.json();
+                if (pageData.extract && pageData.extract.length > 50) {
+                  return {
+                    type: 'wikipedia',
+                    title: pageData.title,
+                    abstract: pageData.extract,
+                    url: pageData.content_urls?.desktop?.page || '',
+                    sources: [{
+                      title: pageData.title,
+                      url: pageData.content_urls?.desktop?.page || '',
+                      description: pageData.extract.substring(0, 150) + '...'
+                    }]
+                  };
+                }
+              }
+            }
+          }
+        } catch (error) {
+          // Continue to next query
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[WebSearch] Wikipedia search error:', error);
+      return null;
+    }
+  }
+
+  generateWikipediaQueries(query) {
+    const queries = [];
+    queries.push(query);
+    
+    const cleanQuery = query.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    queries.push(cleanQuery);
+    
+    const words = cleanQuery.split(' ').filter(word => word.length > 2);
+    if (words.length > 1) {
+      queries.push(words.slice(0, 2).join(' '));
+      if (words.length > 2) {
+        queries.push(words.slice(0, 3).join(' '));
+      }
+    }
+    
+    return [...new Set(queries)].slice(0, 3);
+  }
+
+  async searchNewsAPI(query, limit = 5, apiKeyOverride = null) {
+    try {
+      const apiKey = apiKeyOverride || await this.getAPIKey('newsapi') || await this.getAPIKey('news');
+      if (!apiKey) {
+        return [];
+      }
+
+      const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=en&sortBy=relevancy&pageSize=${limit}&apiKey=${apiKey}`;
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('NewsAPI key invalid');
+        }
+        if (response.status === 429) {
+          throw new Error('NewsAPI quota exceeded');
+        }
+        throw new Error(`NewsAPI error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.status !== 'ok') {
+        throw new Error(`NewsAPI error: ${data.message}`);
+      }
+
+      return (data.articles || []).map(article => ({
+        title: article.title,
+        description: article.description,
+        content: article.content,
+        url: article.url,
+        publishedAt: article.publishedAt,
+        source: article.source?.name || 'Unknown'
+      }));
+    } catch (error) {
+      console.error('[WebSearch] NewsAPI search error:', error);
+      return [];
+    }
+  }
+
+  async searchSerper(query, limit = 5) {
+    try {
+      const apiKey = await this.getAPIKey('serper');
+      if (!apiKey) {
+        return [];
+      }
+
+      const url = this.sources.serper;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          q: query,
+          num: limit
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Serper.dev API key invalid');
+        }
+        if (response.status === 429) {
+          throw new Error('Serper.dev quota exceeded');
+        }
+        throw new Error(`Serper.dev error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      const organicResults = (data.organic || []).slice(0, limit).map(result => ({
+        title: result.title,
+        link: result.link,
+        snippet: result.snippet,
+        position: result.position
+      }));
+
+      // Also extract answer box if available
+      const answerBox = data.answerBox;
+      if (answerBox && answerBox.answer) {
+        organicResults.unshift({
+          title: answerBox.title || 'Direct Answer',
+          link: answerBox.link || '',
+          snippet: answerBox.answer,
+          position: 0,
+          isAnswerBox: true
+        });
+      }
+
+      return organicResults;
+    } catch (error) {
+      console.error('[WebSearch] Serper.dev search error:', error);
+      return [];
+    }
+  }
+
+  formatResultsForPrompt(searchResults) {
+    let formatted = '';
+    
+    if (searchResults.wikipedia.length > 0) {
+      formatted += '**Wikipedia Background:**\n';
+      searchResults.wikipedia.forEach(result => {
+        formatted += `- ${result.title}: ${result.abstract.substring(0, 500)}${result.abstract.length > 500 ? '...' : ''}\n`;
+        if (result.url) {
+          formatted += `  Source: ${result.url}\n`;
+        }
+      });
+      formatted += '\n';
+    }
+    
+    if (searchResults.news.length > 0) {
+      formatted += '**Recent News Articles:**\n';
+      searchResults.news.slice(0, 3).forEach(article => {
+        formatted += `- ${article.title}\n`;
+        if (article.description) {
+          formatted += `  ${article.description.substring(0, 200)}${article.description.length > 200 ? '...' : ''}\n`;
+        }
+        formatted += `  Source: ${article.source} | Published: ${article.publishedAt || 'Unknown'}\n`;
+        formatted += `  URL: ${article.url}\n`;
+      });
+      formatted += '\n';
+    }
+    
+    if (searchResults.web.length > 0) {
+      formatted += '**Web Search Results:**\n';
+      searchResults.web.slice(0, 3).forEach(result => {
+        formatted += `- ${result.title}\n`;
+        if (result.snippet) {
+          formatted += `  ${result.snippet}\n`;
+        }
+        formatted += `  URL: ${result.link}\n`;
+      });
+      formatted += '\n';
+    }
+    
+    return formatted.trim();
+  }
+}
+
 // AI Provider Manager - Plain JavaScript, no imports
 class AIProviderManager {
   constructor() {
@@ -43,7 +381,9 @@ class AIProviderManager {
   initializeTemplates() {
     return {
       news: {
-        medium: `Create a detailed news summary (300 words) with engaging visual formatting:
+        medium: `Create a detailed news summary (300 words) with engaging visual formatting. 
+
+IMPORTANT: Start directly with the first section. DO NOT add any introductory text like "Here's a news summary" or "This article discusses". Begin immediately with the formatted sections below.
 
 📰 **Overview:** [2-3 sentences combining main points]
 
@@ -58,10 +398,12 @@ class AIProviderManager {
 • [Important detail 1]
 • [Important detail 2]
 
-Use emojis and clear formatting for reader appeal.`
+Use emojis and clear formatting for reader appeal. Start immediately with "📰 **Overview:**" without any preamble.`
       },
       blog: {
-        medium: `Create a detailed blog summary (300 words) with engaging visual formatting:
+        medium: `Create a detailed blog summary (300 words) with engaging visual formatting.
+
+IMPORTANT: Start directly with the first section. DO NOT add any introductory text like "Here's a blog summary" or "This post discusses". Begin immediately with the formatted sections below.
 
 💭 **Main Argument:** [2-3 sentences: Core thesis and context]
 
@@ -72,10 +414,12 @@ Use emojis and clear formatting for reader appeal.`
 
 👤 **Author's Stance:** [Positive/Negative/Neutral with reasoning]
 
-Focus on argument structure and author's perspective.`
+Focus on argument structure and author's perspective. Start immediately with "💭 **Main Argument:**" without any preamble.`
       },
       youtube: {
-        medium: `Create a detailed YouTube video summary (300 words) with engaging visual formatting:
+        medium: `Create a detailed YouTube video summary (300 words) with engaging visual formatting.
+
+IMPORTANT: Start directly with the first section. DO NOT add any introductory text like "Here's a video summary" or "This video discusses". Begin immediately with the formatted sections below.
 
 🎥 **Video Title:** [The video title]
 
@@ -88,10 +432,12 @@ Focus on argument structure and author's perspective.`
 
 💬 **Host's Viewpoint:** [What position/opinion does the host take?]
 
-Focus on actionable insights and main arguments.`
+Focus on actionable insights and main arguments. Start immediately with "🎥 **Video Title:**" without any preamble.`
       },
       generic: {
-        medium: `Create a concise, visually appealing summary (300 words):
+        medium: `Create a concise, visually appealing summary (300 words).
+
+IMPORTANT: Start directly with the first section. DO NOT add any introductory text like "Here's a summary" or "This content discusses". Begin immediately with the formatted sections below.
 
 📌 **Main Topic:** [What is this about?]
 
@@ -102,7 +448,7 @@ Focus on actionable insights and main arguments.`
 
 📝 **Summary:** [Brief overview - 2-3 sentences]
 
-Focus on the most important information with clear formatting.`
+Focus on the most important information with clear formatting. Start immediately with "📌 **Main Topic:**" without any preamble.`
       }
     };
   }
@@ -173,7 +519,10 @@ Focus on the most important information with clear formatting.`
           if (response.ok) {
             const data = await response.json();
             console.log(`[AIProviderManager] ✅ Success with Gemini model: ${model}`);
-            return data.candidates[0].content.parts[0].text;
+            let summary = data.candidates[0].content.parts[0].text;
+            // Clean up unwanted prefixes
+            summary = this.cleanSummaryPrefix(summary);
+            return summary;
           }
           
           console.log(`[AIProviderManager] ❌ Model ${model} failed: ${response.status}`);
@@ -237,15 +586,55 @@ Focus on the most important information with clear formatting.`
     const data = await response.json();
     
     // Parse response based on provider
+    let summary;
     if (providerName === 'gemini') {
-      return data.candidates[0].content.parts[0].text;
+      summary = data.candidates[0].content.parts[0].text;
     } else if (providerName === 'openai') {
-      return data.choices[0].message.content;
+      summary = data.choices[0].message.content;
     } else if (providerName === 'anthropic') {
-      return data.content[0].text;
+      summary = data.content[0].text;
+    } else {
+      throw new Error('Unknown provider for response parsing');
     }
     
-    throw new Error('Unknown provider for response parsing');
+    // Clean up unwanted prefixes from all providers
+    summary = this.cleanSummaryPrefix(summary);
+    return summary;
+  }
+  
+  cleanSummaryPrefix(summary) {
+    if (!summary) return summary;
+    
+    // Remove common AI introductory phrases
+    const prefixes = [
+      /^Here's\s+(a|an)\s+[^:]+summary[^:]*:\s*/i,
+      /^Here's\s+(a|an)\s+[^:]+based\s+on[^:]*:\s*/i,
+      /^This\s+is\s+(a|an)\s+[^:]+summary[^:]*:\s*/i,
+      /^Based\s+on\s+the\s+provided\s+[^:]+[:\s]*/i,
+      /^Here's\s+(a|an)\s+[^:]+formatted\s+for[^:]*:\s*/i,
+      /^Here's\s+(a|an)\s+[^:]+news\s+summary[^:]*:\s*/i,
+      /^Here's\s+(a|an)\s+[^:]+article\s+summary[^:]*:\s*/i,
+      /^Here's\s+(a|an)\s+[^:]+video\s+summary[^:]*:\s*/i,
+      /^Here's\s+(a|an)\s+[^:]+blog\s+summary[^:]*:\s*/i,
+      /^[^📰📌💭🎥🎯]*?(?=[📰📌💭🎥🎯\*])/, // Remove everything before first emoji or section marker
+    ];
+    
+    let cleaned = summary;
+    for (const prefix of prefixes) {
+      cleaned = cleaned.replace(prefix, '');
+    }
+    
+    // If the summary doesn't start with emoji or markdown header, find the first section
+    if (!/^[📰📌💭🎥🎯\*\n]/.test(cleaned.trim())) {
+      // Try to find the first actual section
+      const firstSectionMatch = cleaned.match(/[📰📌💭🎥🎯]\s*\*\*[^*]+\*\*|\*\*[^*]+\*\*/);
+      if (firstSectionMatch) {
+        const firstSectionIndex = cleaned.indexOf(firstSectionMatch[0]);
+        cleaned = cleaned.substring(firstSectionIndex);
+      }
+    }
+    
+    return cleaned.trim();
   }
   
   async summarizeWithFallback(content, url) {
@@ -287,6 +676,183 @@ Focus on the most important information with clear formatting.`
   extractiveSummary(content) {
     const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10);
     return sentences.slice(0, 3).join('. ') + '.';
+  }
+  
+  async answerQuestion(providerName, prompt, apiKey) {
+    const provider = this.providers[providerName];
+    if (!provider) throw new Error(`Unknown provider: ${providerName}`);
+    
+    console.log(`[AIProviderManager] Answering question with ${provider.name}`);
+    
+    let requestBody;
+    let requestUrl;
+    
+    if (providerName === 'gemini') {
+      // Try each Gemini model in order
+      for (const model of provider.models) {
+        try {
+          requestUrl = `${provider.endpoint}/${model}:generateContent?key=${apiKey}`;
+          requestBody = {
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 1000
+            }
+          };
+          
+          const response = await fetch(requestUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`[AIProviderManager] ✅ Gemini model ${model} answered question`);
+            let answer = data.candidates[0].content.parts[0].text;
+            // Clean up answer
+            answer = this.cleanQAAnswer(answer);
+            return answer;
+          }
+          
+          console.log(`[AIProviderManager] ❌ Model ${model} failed: ${response.status}`);
+        } catch (error) {
+          console.log(`[AIProviderManager] ❌ Model ${model} error: ${error.message}`);
+          continue;
+        }
+      }
+      
+      // All Gemini models failed
+      throw new Error('All Gemini models failed');
+    } else if (providerName === 'openai') {
+      requestUrl = provider.endpoint;
+      requestBody = {
+        model: 'gpt-4',
+        messages: [{
+          role: 'user',
+          content: prompt
+        }],
+        max_tokens: 1000
+      };
+    } else if (providerName === 'anthropic') {
+      requestUrl = provider.endpoint;
+      requestBody = {
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: prompt
+        }]
+      };
+    }
+    
+    const headers = { 'Content-Type': 'application/json' };
+    if (providerName === 'openai') {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (providerName === 'anthropic') {
+      headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    }
+    
+    const response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+      let errorDetails = '';
+      try {
+        const errorData = await response.json();
+        errorDetails = errorData.error?.message || errorData.message || '';
+      } catch (e) {
+        // Ignore JSON parse errors
+      }
+      
+      throw new Error(`API request failed: ${response.status} ${response.statusText}${errorDetails ? ' - ' + errorDetails : ''}`);
+    }
+    
+    const data = await response.json();
+    
+    // Parse response based on provider
+    let answer;
+    if (providerName === 'gemini') {
+      answer = data.candidates[0].content.parts[0].text;
+    } else if (providerName === 'openai') {
+      answer = data.choices[0].message.content;
+    } else if (providerName === 'anthropic') {
+      answer = data.content[0].text;
+    } else {
+      throw new Error('Unknown provider for response parsing');
+    }
+    
+    // Clean up answer
+    answer = this.cleanQAAnswer(answer);
+    return answer;
+  }
+  
+  async answerQuestionWithFallback(prompt) {
+    // Get enabled providers from storage - same logic as summarizeWithFallback
+    const result = await chrome.storage.local.get(['ai_api_keys', 'ai_api_enabled']);
+    const apiKeys = result.ai_api_keys || {};
+    const enabled = result.ai_api_enabled || {};
+    
+    const providers = [
+      { name: 'gemini', key: apiKeys.google || apiKeys.gemini, enabled: enabled.google || enabled.gemini },
+      { name: 'openai', key: apiKeys.openai, enabled: enabled.openai },
+      { name: 'anthropic', key: apiKeys.anthropic, enabled: enabled.anthropic }
+    ].filter(p => p.enabled && p.key);
+    
+    console.log(`[AIProviderManager] Found ${providers.length} enabled providers for Q&A`);
+    
+    // Try each provider in order
+    for (const provider of providers) {
+      try {
+        console.log(`[AIProviderManager] Trying ${provider.name} for Q&A...`);
+        const answer = await this.answerQuestion(provider.name, prompt, provider.key);
+        console.log(`[AIProviderManager] ✅ Success with ${provider.name} for Q&A`);
+        return { success: true, answer, provider: provider.name };
+      } catch (error) {
+        console.log(`[AIProviderManager] ❌ ${provider.name} Q&A failed: ${error.message}`);
+        // For 503 errors (Service Unavailable), log additional context
+        if (error.message.includes('503')) {
+          console.log(`[AIProviderManager] ⚠️ ${provider.name} is temporarily unavailable for Q&A.`);
+        }
+        continue;
+      }
+    }
+    
+    // All providers failed
+    console.log('[AIProviderManager] All providers failed for Q&A');
+    return { success: false, answer: null, provider: 'none' };
+  }
+  
+  cleanQAAnswer(answer) {
+    if (!answer) return answer;
+    
+    let cleaned = answer;
+    
+    // Remove markdown bold/italic
+    cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
+    cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
+    cleaned = cleaned.replace(/_([^_]+)_/g, '$1');
+    
+    // Remove bullet points at start
+    cleaned = cleaned.replace(/^[•\-\*]\s*/gm, '');
+    
+    // Remove template-style headers
+    cleaned = cleaned.replace(/^[📰📌💭🎥🎯✨💡🔑👤💬📖]\s*/gm, '');
+    cleaned = cleaned.replace(/^[\s\n]*(Main Topic|Key Points|Summary|Overview|Details|Context|Important Details|Key Facts|Key Takeaways|Output):[\s\n]*/gim, '');
+    
+    // Remove common AI prefixes
+    cleaned = cleaned.replace(/^(Here's|Based on|In summary|To answer|The answer is|According to)[:\s]+/i, '');
+    
+    // Remove extra whitespace
+    cleaned = cleaned.trim();
+    
+    return cleaned;
   }
 }
 
@@ -334,6 +900,7 @@ class TabSenseServiceWorker {
   constructor() {
     console.log('[TabSense] Service worker constructor called');
     this.aiProviderManager = new AIProviderManager();
+    this.webSearchService = new WebSearchService();
     this.initialized = false;
     this.messageHandlers = new Map();
     this.setupMessageHandlers();
@@ -349,6 +916,7 @@ class TabSenseServiceWorker {
     // Archive handlers
     this.messageHandlers.set('GET_ARCHIVE_CONVERSATIONS', this.handleGetArchiveConversations.bind(this));
     this.messageHandlers.set('SAVE_CONVERSATION_TO_ARCHIVE', this.handleSaveConversationToArchive.bind(this));
+    this.messageHandlers.set('UPDATE_CONVERSATION_MESSAGES', this.handleUpdateConversationMessages.bind(this));
     this.messageHandlers.set('DELETE_ARCHIVE_CONVERSATION', this.handleDeleteArchiveConversation.bind(this));
     
     // Tab handlers
@@ -493,11 +1061,14 @@ class TabSenseServiceWorker {
       // Filter out unwanted pages
       const url = tab.url || '';
       
-      // Don't process search engines, directory pages, or empty URLs
+      // Don't process search engines, directory pages, authentication pages, or empty URLs
       if (url.includes('google.com/search') ||
           url.includes('bing.com/search') ||
           url.includes('duckduckgo.com/?q=') ||
           url.includes('yahoo.com/search') ||
+          url.includes('accounts.google.com') ||
+          url.includes('accounts.google.com/v3/signin') ||
+          url.includes('accounts.google.com/signin') ||
           url.match(/\/category\/|\/archive\/|\/tag\/|\/tags\//) ||
           url.match(/bbc\.com\/(news|sport|culture)(?!\/[^\/]+\/)/)) {
         console.log('[TabSense] Skipping filtered URL:', url);
@@ -550,9 +1121,10 @@ class TabSenseServiceWorker {
           console.log('[TabSense] Skipping adaptive summary - insufficient content');
         }
         
-        // Store tab data
+        // Store tab data - use URL as id for uniqueness
         const tabData = {
-          id: tab.id,
+          id: `${tab.url}-${Date.now()}`,
+          tabId: tab.id, // Store original Chrome tab ID
           title: extractedData.title || tab.title || 'Untitled',
           url: tab.url,
           content: extractedData.content || `Content from ${tab.title || tab.url}`,
@@ -566,14 +1138,30 @@ class TabSenseServiceWorker {
         const result = await chrome.storage.local.get(['multi_tab_collection']);
         const existingTabs = result.multi_tab_collection || [];
         
-        // Check if tab already exists
-        const existingIndex = existingTabs.findIndex(t => t.id === tab.id);
+        // Improved duplicate check: Check URL + title, and only skip if processed recently (within 5 minutes)
+        const now = Date.now();
+        const fiveMinutesAgo = now - (5 * 60 * 1000);
+        
+        // Find existing tab with same URL
+        const existingIndex = existingTabs.findIndex(t => t.url === tab.url);
         
         if (existingIndex >= 0) {
-          // Update existing tab
+          const existingTab = existingTabs[existingIndex];
+          const isSameTitle = existingTab.title === tabData.title;
+          const wasProcessedRecently = existingTab.timestamp && existingTab.timestamp > fiveMinutesAgo;
+          
+          // Only skip if it's the same title AND was processed recently
+          if (isSameTitle && wasProcessedRecently) {
+            console.log('[TabSense] Skipping duplicate tab (same URL + title processed recently):', tab.url);
+            return;
+          }
+          
+          // Update existing tab if different title or stale
+          console.log('[TabSense] Updating existing tab (different title or stale):', tab.url);
           existingTabs[existingIndex] = tabData;
         } else {
           // Add new tab
+          console.log('[TabSense] Adding new tab:', tab.url);
           existingTabs.push(tabData);
         }
         
@@ -651,10 +1239,31 @@ class TabSenseServiceWorker {
       }
       
       const conversationId = `conv-${Date.now()}`;
+      
+      // Extract tab metadata from first message if it exists
+      const firstMessage = messages[0];
+      const tabId = firstMessage?.tabId;
+      const tabUrl = firstMessage?.tabUrl;
+      const tabTitle = firstMessage?.tabTitle;
+      const tabSummary = firstMessage?.tabSummary || firstMessage?.content; // Store summary for context
+      const tabCategory = firstMessage?.tabCategory || 'generic';
+      
+      // Clean the first message to remove metadata fields (they're not part of the actual message structure)
+      const cleanedMessages = messages.map(msg => {
+        const { tabId, tabUrl, tabTitle, tabSummary, tabCategory, ...cleanMsg } = msg;
+        return cleanMsg;
+      });
+      
       const conversation = {
         id: conversationId,
         title,
-        messages,
+        messages: cleanedMessages,
+        // Store full context for Q&A to work independently
+        tabId, // Store tab ID for future lookups
+        tabUrl,
+        tabTitle,
+        tabSummary, // Store summary so Q&A works without original tab
+        tabCategory, // Store category for suggested questions
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -664,7 +1273,7 @@ class TabSenseServiceWorker {
       conversations.unshift(conversation);
       await chrome.storage.local.set({ archive_conversations: conversations });
       
-      console.log('[TabSense] Saved conversation to archive:', title);
+      console.log('[TabSense] Saved conversation to archive:', title, tabId ? `(tabId: ${tabId})` : '');
       return { success: true, data: { conversationId } };
     } catch (error) {
       console.error('[TabSense] Error saving conversation:', error);
@@ -672,13 +1281,99 @@ class TabSenseServiceWorker {
     }
   }
 
+  async handleUpdateConversationMessages(payload, sender) {
+    console.log('[TabSense] UPDATE_CONVERSATION_MESSAGES received');
+    try {
+      const { title, messages, conversationId, suggestedQuestions } = payload || {};
+      
+      if (!messages) {
+        return { success: false, error: 'Messages are required' };
+      }
+      
+      const result = await chrome.storage.local.get(['archive_conversations']);
+      const conversations = result.archive_conversations || [];
+      
+      // Find conversation by ID (preferred) or by title (fallback for backwards compatibility)
+      let conversationIndex = -1;
+      if (conversationId) {
+        conversationIndex = conversations.findIndex(c => c.id === conversationId);
+        console.log('[TabSense] Looking for conversation by ID:', conversationId, 'found:', conversationIndex !== -1);
+      }
+      
+      // Fallback to title-based lookup if ID not provided or not found
+      if (conversationIndex === -1 && title) {
+        conversationIndex = conversations.findIndex(c => c.title === title);
+        console.log('[TabSense] Looking for conversation by title:', title, 'found:', conversationIndex !== -1);
+      }
+      
+      if (conversationIndex !== -1) {
+        // Update existing conversation with new messages and title (if provided)
+        // Preserve existing metadata (tabId, tabUrl, tabTitle, tabSummary, tabCategory)
+        conversations[conversationIndex].messages = messages;
+        if (title && title !== conversations[conversationIndex].title) {
+          console.log('[TabSense] Updating conversation title from:', conversations[conversationIndex].title, 'to:', title);
+          conversations[conversationIndex].title = title;
+        }
+        if (suggestedQuestions && Array.isArray(suggestedQuestions) && suggestedQuestions.length > 0) {
+          conversations[conversationIndex].suggestedQuestions = suggestedQuestions;
+          console.log('[TabSense] Updated suggested questions for conversation');
+        }
+        conversations[conversationIndex].updatedAt = new Date().toISOString();
+        
+        // Extract and preserve tab context from messages if provided (for backward compatibility)
+        const firstMessage = messages[0];
+        if (firstMessage?.tabSummary && !conversations[conversationIndex].tabSummary) {
+          conversations[conversationIndex].tabSummary = firstMessage.tabSummary;
+        }
+        if (firstMessage?.tabCategory && !conversations[conversationIndex].tabCategory) {
+          conversations[conversationIndex].tabCategory = firstMessage.tabCategory;
+        }
+        
+        await chrome.storage.local.set({ archive_conversations: conversations });
+        console.log('[TabSense] ✅ Updated conversation:', title || conversations[conversationIndex].title);
+        return { success: true };
+      } else {
+        console.log('[TabSense] Conversation not found, creating new one');
+        // Create new conversation if not found
+        const newConversationId = conversationId || `conv-${Date.now()}`;
+        const conversation = {
+          id: newConversationId,
+          title: title || 'Conversation',
+          messages,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        if (suggestedQuestions && Array.isArray(suggestedQuestions) && suggestedQuestions.length > 0) {
+          conversation.suggestedQuestions = suggestedQuestions;
+        }
+        conversations.unshift(conversation);
+        await chrome.storage.local.set({ archive_conversations: conversations });
+        console.log('[TabSense] ✅ Created new conversation:', conversation.title);
+        return { success: true, data: { conversationId: newConversationId } };
+      }
+    } catch (error) {
+      console.error('[TabSense] Error updating conversation:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   async handleDeleteArchiveConversation(payload, sender) {
     console.log('[TabSense] DELETE_ARCHIVE_CONVERSATION received');
     try {
-      const { id } = payload || {};
+      const { id, conversationId } = payload || {};
+      const targetId = conversationId || id;
+      console.log('[TabSense] Deleting conversation with id:', targetId);
+      
       const result = await chrome.storage.local.get(['archive_conversations']);
-      const conversations = (result.archive_conversations || []).filter(c => c.id !== id);
-      await chrome.storage.local.set({ archive_conversations: conversations });
+      const conversations = result.archive_conversations || [];
+      const beforeCount = conversations.length;
+      
+      const filtered = conversations.filter(c => c.id !== targetId);
+      const afterCount = filtered.length;
+      
+      console.log('[TabSense] Conversations before:', beforeCount, 'after:', afterCount);
+      
+      await chrome.storage.local.set({ archive_conversations: filtered });
       return { success: true };
     } catch (error) {
       console.error('[TabSense] Error deleting conversation:', error);
@@ -818,184 +1513,351 @@ class TabSenseServiceWorker {
   async handleAnswerQuestion(payload, sender) {
     console.log('[TabSense] ANSWER_QUESTION received');
     try {
-      const { question, context } = payload || {};
+      const { question, context, messages } = payload || {};
       console.log('[TabSense] Question:', question);
       console.log('[TabSense] Context tabs:', context?.length || 0);
+      console.log('[TabSense] Conversation messages:', messages?.length || 0);
       
       // For now, create a context-aware response
       if (context && context.length > 0) {
-        const contextSummary = context.map((tab, i) => 
-          `${i + 1}. ${tab.title}: ${tab.summary || 'No summary available'}`
-        ).join('\n\n');
-        
-        // Build AI prompt for answering the question
+        // Build context from tabs
         const contextPrompt = context.map((tab, i) => 
           `Document ${i + 1} (${tab.title} - ${tab.url}):\n${tab.summary || 'No summary available'}\nCategory: ${tab.category || 'generic'}\n---`
         ).join('\n\n');
         
-        const fullPrompt = `You are an intelligent research assistant. Answer the following question based on the provided context from ${context.length} tab(s).
+        // Build conversation history (exclude the initial summary which is context, not dialogue)
+        // Only include user questions and assistant answers from previous Q&A
+        let conversationHistory = '';
+        if (messages && messages.length > 0) {
+          // Filter to only Q&A pairs (not the initial summary)
+          // The initial summary is typically the first assistant message and is part of context
+          const qaMessages = messages.slice(1); // Skip first message (usually the summary)
+          
+          if (qaMessages.length > 0) {
+            conversationHistory = qaMessages
+              .map(msg => {
+                if (msg.role === 'user') {
+                  return `User: ${msg.content}`;
+                } else if (msg.role === 'assistant') {
+                  return `Assistant: ${msg.content}`;
+                }
+                return '';
+              })
+              .filter(line => line.length > 0)
+              .join('\n\n');
+          }
+        }
+        
+        // Step 1: Extract key claims, facts, and entities from the document
+        let extractedClaims = [];
+        let needsVerification = false;
+        
+        try {
+          console.log('[TabSense] Extracting key claims from document...');
+          const extractionPrompt = `Analyze this document and extract the key claims, facts, statistics, dates, numbers, or specific claims that could be verified externally. Focus on verifiable factual information.
 
-Context from tabs:
-${contextPrompt}
+Document: ${contextPrompt.substring(0, 2000)}
 
-Question: ${question}
+Extract key claims in this format:
+1. [Claim/Fact]
+2. [Claim/Fact]
+3. [Claim/Fact]
 
-Instructions:
-- Provide a clear, concise answer based on the context
-- If the context doesn't contain enough information, state that clearly
-- Cite which document(s) your answer is based on
-- Use natural, conversational language
-- Be specific and factual
+If no verifiable claims are found, respond with "NO_CLAIMS".`;
+          
+          const extractionResult = await this.aiProviderManager.answerQuestionWithFallback(extractionPrompt);
+          if (extractionResult.success && extractionResult.answer) {
+            const answer = extractionResult.answer.trim();
+            if (!answer.includes('NO_CLAIMS') && answer.length > 20) {
+              // Parse extracted claims
+              const lines = answer.split('\n')
+                .map(line => line.replace(/^\d+\.\s*/, '').replace(/^[-*]\s*/, '').trim())
+                .filter(line => line.length > 10 && !line.match(/^(NO_CLAIMS|None|N\/A)/i));
+              
+              extractedClaims = lines.slice(0, 5); // Limit to top 5 claims
+              needsVerification = extractedClaims.length > 0;
+              
+              console.log('[TabSense] ✅ Extracted claims:', extractedClaims.length, extractedClaims);
+            } else {
+              console.log('[TabSense] No verifiable claims found in document');
+            }
+          }
+        } catch (extractionError) {
+          console.log('[TabSense] Claim extraction failed:', extractionError.message);
+          // Continue - we can still do general search
+        }
+        
+        // Step 2: Determine if external search is needed
+        let needsSearch = false;
+        let searchResults = null;
+        let searchSources = [];
+        
+        // Always search if we have claims to verify, OR if question needs external context
+        if (needsVerification && extractedClaims.length > 0) {
+          needsSearch = true;
+          console.log('[TabSense] Claims need verification, performing fact-checking search');
+        } else {
+          try {
+            const searchDetectionPrompt = `Analyze this question and determine if it requires external information (facts, recent events, general knowledge) that might not be in the provided document context.
+
+Question: "${question}"
+Document Context Available: ${context.length} document(s)
+
+Respond with ONLY "YES" if external search would be helpful, or "NO" if the question can be answered from the provided documents alone.
+Examples requiring search: questions about recent news, general knowledge, facts, statistics, historical events, or topics not covered in the documents.
+Examples NOT requiring search: questions about specific content in the documents, asking for summaries, or asking about what the documents say.`;
+            
+            const detectionResult = await this.aiProviderManager.answerQuestionWithFallback(searchDetectionPrompt);
+            if (detectionResult.success && detectionResult.answer) {
+              const answer = detectionResult.answer.trim().toUpperCase();
+              needsSearch = answer.includes('YES') || answer.includes('SEARCH');
+              console.log('[TabSense] Search detection result:', answer, 'Needs search:', needsSearch);
+            }
+          } catch (searchDetectionError) {
+            console.log('[TabSense] Search detection failed, defaulting to no search:', searchDetectionError.message);
+          }
+        }
+        
+        // Step 3: Perform external search (claim-specific if available, or general)
+        if (needsSearch) {
+          try {
+            let searchQuery = question;
+            
+            // If we have extracted claims, search for each one specifically
+            if (extractedClaims.length > 0) {
+              // Combine claims for comprehensive search
+              const claimsQuery = extractedClaims.slice(0, 3).join(' OR ');
+              searchQuery = `${question} (verify: ${claimsQuery})`;
+              console.log('[TabSense] Performing fact-checking search for claims');
+            } else {
+              console.log('[TabSense] Performing general external search for:', question);
+            }
+            
+            searchResults = await this.webSearchService.search(searchQuery, { newsLimit: 3, serperLimit: 3 });
+            
+            if (searchResults && searchResults.totalResults > 0) {
+              searchSources = searchResults.sources || [];
+              console.log('[TabSense] Found', searchResults.totalResults, 'external search results');
+              
+              // Log detailed search results payload
+              console.log('[TabSense] 📊 SEARCH RESULTS PAYLOAD:', {
+                totalResults: searchResults.totalResults,
+                extractedClaims: extractedClaims.length > 0 ? extractedClaims : null,
+                wikipedia: searchResults.wikipedia.length > 0 ? {
+                  count: searchResults.wikipedia.length,
+                  results: searchResults.wikipedia.map(r => ({
+                    title: r.title,
+                    url: r.url,
+                    abstractPreview: r.abstract?.substring(0, 100) + '...'
+                  }))
+                } : null,
+                news: searchResults.news.length > 0 ? {
+                  count: searchResults.news.length,
+                  results: searchResults.news.map(a => ({
+                    title: a.title,
+                    source: a.source,
+                    url: a.url,
+                    descriptionPreview: a.description?.substring(0, 100) + '...'
+                  }))
+                } : null,
+                web: searchResults.web.length > 0 ? {
+                  count: searchResults.web.length,
+                  results: searchResults.web.map(w => ({
+                    title: w.title,
+                    link: w.link,
+                    snippetPreview: w.snippet?.substring(0, 100) + '...',
+                    isAnswerBox: w.isAnswerBox || false
+                  }))
+                } : null,
+                sources: searchSources.map(s => ({
+                  title: s.title,
+                  url: s.url,
+                  description: s.description?.substring(0, 80) + '...'
+                }))
+              });
+            } else {
+              console.log('[TabSense] No external search results found');
+            }
+          } catch (searchError) {
+            console.warn('[TabSense] External search failed:', searchError.message);
+            console.error('[TabSense] Search error details:', searchError);
+            // Continue without external search - better to answer with context than fail
+          }
+        }
+        
+        // Step 4: Build enhanced prompt with conflict resolution logic
+        const conversationSection = conversationHistory 
+          ? `PREVIOUS CONVERSATION:\n${conversationHistory}\n\n` 
+          : '';
+        
+        // Always include document context - external search supplements it
+        const documentContextSection = `PRIMARY CONTEXT (from the document${context.length > 1 ? 's' : ''} the user is reading):\n${contextPrompt}\n\n`;
+        
+        // Add extracted claims if we have them
+        const claimsSection = extractedClaims.length > 0
+          ? `KEY CLAIMS EXTRACTED FROM DOCUMENT (to be verified):\n${extractedClaims.map((claim, i) => `${i + 1}. ${claim}`).join('\n')}\n\n`
+          : '';
+        
+        // Add external context if available, with conflict resolution instructions
+        let externalContextSection = '';
+        let conflictResolutionInstructions = '';
+        
+        if (searchResults && searchResults.totalResults > 0) {
+          externalContextSection = `EXTERNAL VERIFICATION CONTEXT (from external search to cross-check document claims):\n${this.webSearchService.formatResultsForPrompt(searchResults)}\n\n`;
+          
+          if (extractedClaims.length > 0) {
+            conflictResolutionInstructions = `CONFLICT RESOLUTION LOGIC:
+1. Cross-check each extracted claim against external sources above
+2. If external sources AGREE with the document → accept the document as correct and state confidence
+3. If external sources CONFLICT with the document → you MUST:
+   a) Flag the discrepancy explicitly (e.g., "However, external sources indicate...")
+   b) Explain both perspectives (document vs. external sources)
+   c) Default to external data if it's from credible, recent sources (Wikipedia, reputable news)
+   d) If uncertainty remains, state it clearly (e.g., "Sources differ on this point...")
+4. Always attribute sources clearly (e.g., "According to the document...", "Wikipedia states...", "Recent news reports indicate...")
+5. Be transparent about where each piece of information came from
+
+EXAMPLES OF GOOD SOURCE ATTRIBUTION:
+- "The document claims X, and this aligns with Wikipedia's information on the topic."
+- "While the document states Y, recent news from [Source] reports Z instead."
+- "According to the document, A is true. External sources from Wikipedia confirm this."
+- "The document mentions B, but external verification from [Source] suggests otherwise - sources differ on this point."`;
+          } else {
+            conflictResolutionInstructions = `CONTEXT USAGE:
+- Use external sources to SUPPLEMENT the document context
+- If external information contradicts the document, prioritize external sources if they're credible (Wikipedia, reputable news)
+- Always attribute sources clearly`;
+          }
+        }
+        
+        // Log what we're providing to the AI
+        if (searchResults && searchResults.totalResults > 0) {
+          console.log('[TabSense] 📝 PROMPT CONTEXT BREAKDOWN:', {
+            documentContext: {
+              tabsCount: context.length,
+              tabTitles: context.map(t => t.title),
+              contextLength: contextPrompt.length
+            },
+            extractedClaims: extractedClaims.length > 0 ? extractedClaims : null,
+            externalContext: {
+              sources: searchResults.totalResults,
+              wikipedia: searchResults.wikipedia.length,
+              news: searchResults.news.length,
+              web: searchResults.web.length,
+              formattedLength: this.webSearchService.formatResultsForPrompt(searchResults).length
+            },
+            conflictResolution: extractedClaims.length > 0 ? 'enabled' : 'supplement only',
+            conversationHistory: conversationHistory.length > 0 ? conversationHistory.length + ' chars' : 'none'
+          });
+        }
+        
+        // Format source names for inline citations
+        const sourceNames = [];
+        if (context.length > 0) {
+          const primarySource = context[0];
+          sourceNames.push({ name: primarySource.title || 'Document', type: 'document' });
+        }
+        if (searchResults && searchResults.totalResults > 0) {
+          searchResults.news.slice(0, 2).forEach(article => {
+            sourceNames.push({ name: article.source || 'News Source', type: 'news' });
+          });
+          if (searchResults.wikipedia.length > 0) {
+            sourceNames.push({ name: 'Wikipedia', type: 'wikipedia' });
+          }
+        }
+        
+        const fullPrompt = `You are a helpful research assistant providing concise, well-structured answers about web content. Your responses should be readable, direct, and efficiently formatted.
+
+${conversationSection}${documentContextSection}${claimsSection}${externalContextSection}CURRENT QUESTION:
+${question}
+
+${conflictResolutionInstructions}
+
+OUTPUT FORMAT REQUIREMENTS:
+
+1. OPENING: Start with ONE direct, concise statement that directly answers the question. No filler words like "Okay, so we were talking about", "The document I was reading", or "Let me explain". Just state the answer directly.
+
+2. STRUCTURE: Use emojis and bold section headers for readability:
+   - Use 🛠️ for strategy/approach sections
+   - Use 🌍 for industry/broader trends
+   - Use 📊 for data/statistics
+   - Use 💡 for insights/recommendations
+   - Use **Bold Text** for section headers
+
+3. CITATIONS: Add inline citations at the end of relevant sentences using this format:
+   - {Source Name} for document sources
+   - {Reuters}, {Wikipedia}, {News Source Name} for external sources
+   - Place citations in curly braces at the end of sentences containing facts
+
+4. LANGUAGE STYLE:
+   - Be CONCISE - remove unnecessary words
+   - Be DIRECT - answer immediately, no preamble
+   - Be HUMAN - conversational but efficient
+   - NO filler phrases like "I don't have enough information", "I wish I had more info"
+   - If a claim can't be verified, simply omit it or state briefly "External verification unavailable for this claim"
+
+5. FORMATTING:
+   - Use bullet points with • for lists
+   - Use **bold** for key terms and section headers
+   - Use emojis strategically for visual organization
+   - Keep paragraphs short and scannable
+
+6. FOR UNVERIFIABLE CLAIMS:
+   - Instead of: "I don't have enough information from external sources to confirm..."
+   - Use: Skip mentioning it, or state "This cannot be verified externally" in parentheses
+   - Focus on what you CAN verify rather than what you can't
+
+7. ENDING: At the end, include 3-4 suggested follow-up questions. Format as:
+   - "If you're interested, I can break down..." [question]
+   - OR just list them naturally: "You might also want to know about..." [question]
+
+EXAMPLE OF GOOD FORMAT:
+"Oil companies are managing debt amid volatile prices by emphasizing capital discipline, maintaining liquidity buffers, and diversifying investments.
+
+🛠️ Strategic Debt Management Approaches
+
+**Capital Discipline:** Many oil majors are prioritizing capital efficiency over aggressive expansion {Reuters}. This means focusing on high-return projects and delaying marginal ones.
+
+**Liquidity Reserves:** Firms are building cash buffers to weather downturns {Document}. By maintaining strong liquidity, they reduce reliance on external debt markets.
+
+If you're interested, I can break down how specific companies like Shell or TotalEnergies are applying these strategies."
+
+CRITICAL: 
+- NO filler words or verbose explanations
+- NO phrases like "Okay, so", "The document says", "I found", "We were talking about"
+- YES to concise, direct answers with visual structure
+- YES to inline citations in curly braces
+- YES to emojis and bold formatting for readability
 
 Answer:`;
         
-        // Use AI to generate the answer - but call the AI directly without templates
+        // Step 4: Use AI to generate the answer with enhanced context
         try {
-          // Get enabled providers
-          const result = await chrome.storage.local.get(['ai_api_keys', 'ai_api_enabled']);
-          const keys = result.ai_api_keys || {};
-          const enabled = result.ai_api_enabled || {};
+          const qaResult = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt);
           
-          // Filter enabled providers
-          const enabledProviders = Object.entries(enabled)
-            .filter(([_, isEnabled]) => isEnabled)
-            .map(([name, _]) => name);
-          
-          console.log(`[AIProviderManager] Enabled providers: ${enabledProviders.join(', ')}`);
-          console.log(`[AIProviderManager] Available keys: ${Object.keys(keys).join(', ')}`);
-          
-          // Try each enabled provider
-          for (const providerName of enabledProviders) {
-            const apiKey = keys[providerName];
-            if (!apiKey) {
-              console.log(`[AIProviderManager] No API key for ${providerName}`);
-              continue;
+          if (qaResult.success && qaResult.answer) {
+            // Combine document sources with search sources
+            const allSources = [
+              ...context.map(tab => ({ title: tab.title, url: tab.url, type: 'document' })),
+              ...searchSources.map(src => ({ title: src.title, url: src.url, type: 'external' }))
+            ];
+            
+            // Get model name for Gemini (for better logging)
+            let providerDisplay = qaResult.provider;
+            if (qaResult.provider === 'gemini') {
+              // We don't know which model succeeded, but that's okay
+              providerDisplay = 'gemini';
             }
             
-            console.log(`[AIProviderManager] Attempting ${providerName}...`);
-            
-            try {
-              const provider = this.aiProviderManager.providers[providerName];
-              if (!provider) continue;
-              
-              // Build headers and body based on provider type
-              let headers = { 'Content-Type': 'application/json' };
-              let body;
-              let endpoint;
-              
-              if (providerName === 'gemini') {
-                // Try each Gemini model until one works
-                for (const model of provider.models) {
-                  try {
-                    endpoint = `${provider.endpoint}/${model}:generateContent?key=${apiKey}`;
-                    body = {
-                      contents: [{ parts: [{ text: fullPrompt }] }],
-                      generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
-                    };
-                    
-                    const testResponse = await fetch(endpoint, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(body)
-                    });
-                    
-                    if (testResponse.ok) {
-                      const testData = await testResponse.json();
-                      const answer = testData.candidates[0].content.parts[0].text;
-                      
-                      if (answer) {
-                        console.log(`[AIProviderManager] ✅ Gemini model ${model} answered question`);
-                        
-                        // Clean up answer
-                        let cleanAnswer = answer.replace(/\*\*[^*]+\*\*/g, '').replace(/^[•\-\*]\s*/gm, '').trim();
-                        cleanAnswer = cleanAnswer.replace(/^\s*(Main Topic|Key Points|Summary|Overview|Details|Context|Important Details|Key Facts|Key Takeaways):/gim, '').trim();
-                        cleanAnswer = cleanAnswer.replace(/^(📰|📌|🎯|📖|💡|💭|🔑|👤|🎥|✨|💬)\s*/gim, '').trim();
-                        
-                        return {
-                          success: true,
-                          data: {
-                            answer: cleanAnswer,
-                            sources: context.map(tab => ({ title: tab.title, url: tab.url })),
-                            provider: `${providerName} (${model})`,
-                            confidence: 0.8
-                          }
-                        };
-                      }
-                    }
-                  } catch (modelError) {
-                    console.log(`[AIProviderManager] Model ${model} failed:`, modelError.message);
-                    continue;
-                  }
-                }
-                // All Gemini models failed for this question
-                continue;
-              } else if (providerName === 'openai') {
-                endpoint = provider.endpoint;
-                headers['Authorization'] = `Bearer ${apiKey}`;
-                body = {
-                  model: provider.model || 'gpt-4',
-                  messages: [{ role: 'user', content: fullPrompt }],
-                  max_tokens: 1000
-                };
-              } else if (providerName === 'anthropic') {
-                endpoint = provider.endpoint;
-                headers['x-api-key'] = apiKey;
-                headers['anthropic-version'] = '2023-06-01';
-                body = {
-                  model: provider.model || 'claude-3-5-sonnet-20241022',
-                  max_tokens: 1024,
-                  messages: [{ role: 'user', content: fullPrompt }]
-                };
+            return {
+              success: true,
+              data: {
+                answer: qaResult.answer,
+                sources: allSources,
+                provider: providerDisplay,
+                confidence: searchResults && searchResults.totalResults > 0 ? 0.9 : 0.8
               }
-              
-              // Make direct API call without templates - just answer the question
-              const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify(body)
-              });
-              
-              if (!response.ok) {
-                const errorText = await response.text();
-                console.log(`[AIProviderManager] ❌ ${providerName} failed: API request failed: ${response.status}`);
-                continue;
-              }
-              
-              const data = await response.json();
-              
-              // Parse response based on provider type
-              let answer;
-              if (providerName === 'gemini') {
-                answer = data.candidates[0].content.parts[0].text;
-              } else if (providerName === 'openai') {
-                answer = data.choices[0].message.content;
-              } else if (providerName === 'anthropic') {
-                answer = data.content[0].text;
-              }
-              
-              if (!answer) continue;
-              
-              // Clean up any template-like formatting more aggressively
-              answer = answer.replace(/\*\*[^*]+\*\*/g, '').replace(/^[•\-\*]\s*/gm, '').trim();
-              answer = answer.replace(/^\s*(Main Topic|Key Points|Summary|Overview|Details|Context|Important Details|Key Facts|Key Takeaways):/gim, '').trim();
-              answer = answer.replace(/^(📰|📌|🎯|📖|💡|💭|🔑|👤|🎥|✨|💬)\s*/gim, '').trim();
-              
-              if (answer) {
-                console.log(`[AIProviderManager] ✅ ${providerName} answered question`);
-                return {
-                  success: true,
-                  data: {
-                    answer,
-                    sources: context.map(tab => ({ title: tab.title, url: tab.url })),
-                    provider: providerName,
-                    confidence: 0.8
-                  }
-                };
-              }
-            } catch (err) {
-              console.log(`[AIProviderManager] ${providerName} failed:`, err.message);
-              continue;
-            }
+            };
           }
         } catch (aiError) {
           console.log('[TabSense] AI answer generation failed:', aiError.message);
@@ -1749,38 +2611,128 @@ Answer:`;
       const { messages } = payload || {};
       
       if (!messages || messages.length === 0) {
+        console.log('[TabSense] No messages provided for title generation');
         return { success: false, error: 'Messages required' };
       }
       
-      // Try to extract Main Topic from the summary (first assistant message)
+      // Try to extract title from the summary (first assistant message)
       const firstAssistantMessage = messages.find(m => m.role === 'assistant');
       if (firstAssistantMessage && firstAssistantMessage.content) {
-        // Try to extract from emoji version
-        const emojiMatch = firstAssistantMessage.content.match(/(?:📰|📌)\s*\*\*Main Topic:\*\*\s*([^\n]+)/);
-        if (emojiMatch && emojiMatch[1]) {
-          let title = emojiMatch[1].trim();
-          if (title.length > 60) title = title.substring(0, 57) + '...';
-          return { success: true, data: { title } };
+        const content = firstAssistantMessage.content;
+        const contentPreview = content.substring(0, 400);
+        console.log('[TabSense] Extracting title from content (first 400 chars):', contentPreview);
+        
+        // Try multiple patterns to extract title based on page type
+        // Order matters - try specific patterns first, then generic ones
+        const patterns = [
+          // News: Overview (most common)
+          /(?:📰)\s*\*\*Overview:\*\*\s*([^\n]+)/,
+          /\*\*Overview:\*\*\s*([^\n]+)/i,
+          /Overview:\s*([^\n]+)/i,
+          
+          // Blog: Main Argument
+          /(?:💭)\s*\*\*Main Argument:\*\*\s*([^\n]+)/,
+          /\*\*Main Argument:\*\*\s*([^\n]+)/i,
+          /Main Argument:\s*([^\n]+)/i,
+          
+          // YouTube/Generic: Main Topic
+          /(?:🎯|📌)\s*\*\*Main Topic:\*\*\s*([^\n]+)/,
+          /\*\*Main Topic:\*\*\s*([^\n]+)/,
+          /Main Topic:\s*([^\n]+)/i,
+          
+          // Fallback: Extract first meaningful line after emoji
+          /[📰📌💭🎥🎯]\s*\*\*([^*]+?)\*\*\s*([^\n]+)/,
+          
+          // Last resort: First non-empty line after cleaning
+          /^[📰📌💭🎥🎯]?\s*\*\*([^*]+?)\*\*[:\s]*([^\n]+)/m,
+        ];
+        
+        for (const pattern of patterns) {
+          const match = content.match(pattern);
+          if (match) {
+            // Get the captured group (could be in different positions)
+            let title = match[2] || match[1];
+            if (title) {
+              title = title.trim();
+              // Clean up any markdown formatting, emojis, extra whitespace
+              title = title.replace(/\*\*/g, '').replace(/^[📰📌💭🎥🎯✨💡🔑👤💬📖]\s*/g, '').trim();
+              // Remove common suffixes
+              title = title.replace(/\s*[:\-]\s*$/, '').trim();
+              
+              if (title.length > 5 && title.length < 200) {
+                // Truncate if too long
+                if (title.length > 60) {
+                  title = title.substring(0, 57).trim() + '...';
+                }
+                console.log('[TabSense] ✅ Extracted title using pattern:', pattern.toString().substring(0, 50), 'Result:', title);
+                return { success: true, data: { title } };
+              }
+            }
+          }
         }
         
-        // Try to extract from plain version
-        const plainMatch = firstAssistantMessage.content.match(/\*\*Main Topic:\*\*\s*([^\n]+)/);
-        if (plainMatch && plainMatch[1]) {
-          let title = plainMatch[1].trim();
-          if (title.length > 60) title = title.substring(0, 57) + '...';
-          return { success: true, data: { title } };
+        console.log('[TabSense] ⚠️ Could not extract title from summary patterns, trying fallback extraction');
+        
+        // Fallback: Extract first non-empty sentence/line
+        const lines = content.split('\n').filter(l => l.trim().length > 10);
+        for (const line of lines) {
+          // Skip lines that are just section headers
+          if (/^[📰📌💭🎥🎯✨💡🔑👤💬📖]?\s*\*\*[^*]+\*\*[:\s]*$/.test(line.trim())) {
+            continue;
+          }
+          // Get first meaningful content line
+          let title = line.replace(/\*\*/g, '').replace(/^[📰📌💭🎥🎯✨💡🔑👤💬📖]\s*/g, '').replace(/^[•\-\*]\s*/, '').trim();
+          if (title.length > 10 && title.length < 100) {
+            if (title.length > 60) title = title.substring(0, 57).trim() + '...';
+            console.log('[TabSense] ✅ Extracted title from first content line:', title);
+            return { success: true, data: { title } };
+          }
         }
+        
+        console.log('[TabSense] ⚠️ All extraction methods failed, trying AI-based generation');
+      }
+      
+      // Try AI-based title generation if pattern extraction failed
+      try {
+        console.log('[TabSense] Attempting AI-based title generation...');
+        const aiPrompt = `Based on this summary content, generate a concise, descriptive title (max 60 characters, no prefixes like "Summary:" or "Title:"). Just return the title text:
+
+${content.substring(0, 1000)}
+
+Title:`;
+        
+        const aiResult = await this.aiProviderManager.answerQuestionWithFallback(aiPrompt);
+        if (aiResult.success && aiResult.answer) {
+          let aiTitle = aiResult.answer.trim();
+          // Clean up AI response
+          aiTitle = aiTitle.replace(/^(Title:|Summary:)/i, '').trim();
+          aiTitle = aiTitle.replace(/[""]/g, '').trim();
+          // Remove any newlines and extra whitespace
+          aiTitle = aiTitle.split('\n')[0].trim();
+          
+          if (aiTitle.length > 5 && aiTitle.length < 100) {
+            if (aiTitle.length > 60) {
+              aiTitle = aiTitle.substring(0, 57).trim() + '...';
+            }
+            console.log('[TabSense] ✅ Generated title using AI:', aiTitle);
+            return { success: true, data: { title: aiTitle } };
+          }
+        }
+      } catch (aiError) {
+        console.log('[TabSense] AI title generation failed:', aiError.message);
       }
       
       // Fallback: use first user message
       const firstUserMessage = messages.find(m => m.role === 'user');
-      if (firstUserMessage) {
-        let title = firstUserMessage.content.substring(0, 50);
+      if (firstUserMessage && firstUserMessage.content) {
+        let title = firstUserMessage.content.substring(0, 50).trim();
         if (title.length > 60) title = title.substring(0, 57) + '...';
+        console.log('[TabSense] Using user message as title:', title);
         return { success: true, data: { title } };
       }
       
       // Final fallback
+      console.log('[TabSense] Using default title: Conversation');
       return { success: true, data: { title: 'Conversation' } };
     } catch (error) {
       console.error('[TabSense] Error generating conversation title:', error);

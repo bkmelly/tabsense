@@ -30,6 +30,8 @@ declare const chrome: any;
 // Service Worker Message Types
 interface ServiceWorkerMessage {
   action: string;
+  payload?: any;
+  data?: any;
   [key: string]: any; // Allow additional properties
 }
 
@@ -45,18 +47,13 @@ interface Conversation {
   title: string;
   createdAt?: string;
   updatedAt?: string;
-}
-
-interface ServiceWorkerMessage {
-  action: string;
-  payload?: any;
-  data?: any;
-}
-
-interface ServiceWorkerResponse {
-  success: boolean;
-  data?: any;
-  error?: string;
+  tabId?: string;
+  tabUrl?: string;
+  tabTitle?: string;
+  tabSummary?: string;
+  tabCategory?: string;
+  messages?: Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>;
+  suggestedQuestions?: string[];
 }
 
 // Service Worker Communication Functions
@@ -185,6 +182,7 @@ const TabSenseSidebar: React.FC = () => {
   const [mainQuestion, setMainQuestion] = useState("");
   const [mainMessages, setMainMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [loadingStage, setLoadingStage] = useState<string>('');
   const [expandedTabId, setExpandedTabId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isQAExpanded, setIsQAExpanded] = useState(false);
@@ -202,6 +200,14 @@ const TabSenseSidebar: React.FC = () => {
   const [summaryQuestion, setSummaryQuestion] = useState("");
   const [summarySuggestedQuestions, setSummarySuggestedQuestions] = useState<string[]>([]);
   const [isRegeneratingSummaryQuestions, setIsRegeneratingSummaryQuestions] = useState(false);
+  const [conversationTitle, setConversationTitle] = useState<string>('');
+  const [summaryMessages, setSummaryMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
+  const [summaryShowSuggestions, setSummaryShowSuggestions] = useState(true);
+  const [summaryIsMenuOpen, setSummaryIsMenuOpen] = useState(false);
+  
+  // Conversation History State
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [conversationHistory, setConversationHistory] = useState<Conversation[]>([]);
 
   /**
    * Validate URL and clean it
@@ -371,12 +377,29 @@ const TabSenseSidebar: React.FC = () => {
           url: message.data.url,
           favicon: `https://www.google.com/s2/favicons?domain=${new URL(message.data.url).hostname}`,
           summary: message.data.summary || (message.data.processedData?.summary) || 'Content processed',
-          keyPoints: [
-            `📊 Quality: ${message.data.processedData?.qualityScore || 'N/A'}/100`,
-            `📖 ${message.data.processedData?.wordCount || 0} words`,
-            `🏷️ ${message.data.category || message.data.processedData?.category || 'General'}`,
-            `👤 ${message.data.processedData?.author || 'Unknown author'}`
-          ],
+          keyPoints: (() => {
+            const summary = message.data.summary || message.data.processedData?.summary || '';
+            if (summary.includes('**')) {
+              const keyPointsMatch = summary.match(/\*\*[Key Points|Key Facts|Key Takeaways]+\*\*[\s\S]*?(?=\n\*\*|$)/i);
+              if (keyPointsMatch) {
+                const keyPointsText = keyPointsMatch[0];
+                const lines = keyPointsText.split('\n')
+                  .filter(line => line.trim().startsWith('•') || line.trim().startsWith('-') || line.trim().startsWith('*'))
+                  .map(line => line.replace(/^[•\-\*]\s*/, '').trim())
+                  .filter(line => line.length > 0 && 
+                    !line.includes('Content extracted') &&
+                    !line.includes('characters') &&
+                    !line.includes('Quality:') &&
+                    !line.includes('words') &&
+                    !line.includes('Page type:') &&
+                    !line.includes('Unknown author') &&
+                    !line.includes('generic')
+                  );
+                return lines.slice(0, 6);
+              }
+            }
+            return [];
+          })(),
           analyzing: false,
           category: (message.data.category || message.data.processedData?.category || 'generic') as "youtube" | "news" | "documentation" | "forum" | "blog" | "ecommerce" | "academic" | "entertainment" | "generic",
           // Enhanced categorization metadata
@@ -406,7 +429,7 @@ const TabSenseSidebar: React.FC = () => {
           }
         };
         
-        // Add to existing tabs (avoid duplicates)
+        // Add to existing tabs (avoid duplicates by URL)
         setTabs(prevTabs => {
           const exists = prevTabs.some(tab => tab.url === newTab.url);
           if (exists) {
@@ -415,7 +438,14 @@ const TabSenseSidebar: React.FC = () => {
               tab.url === newTab.url ? { ...tab, ...newTab } : tab
             );
           }
-          return [newTab, ...prevTabs];
+          // Check if this is a duplicate by scanning all properties
+          const isDuplicate = prevTabs.some(tab => 
+            tab.url === newTab.url && tab.title === newTab.title
+          );
+          if (!isDuplicate) {
+            return [newTab, ...prevTabs];
+          }
+          return prevTabs;
         });
         
         // Show success notification
@@ -560,8 +590,9 @@ const TabSenseSidebar: React.FC = () => {
             // Clean and normalize title
             const cleanTitle = cleanContent(tab.title || 'Untitled');
             
-            // Create clean summary from content
-            const cleanSummary = createCleanSummary(tab.content || '', cleanTitle);
+            // Use AI-generated summary if available, otherwise fall back to creating one
+            const aiGeneratedSummary = tab.summary || tab.processedData?.summary;
+            const cleanSummary = aiGeneratedSummary || createCleanSummary(tab.content || '', cleanTitle);
             
             // Check if this is YouTube data
             const isYouTubeData = tab.type === 'youtube' || tab.video || tab.comments;
@@ -595,7 +626,7 @@ const TabSenseSidebar: React.FC = () => {
             // Leave empty if no valid key points found - don't create fake ones
             
             return {
-              id: `real-${index}`,
+              id: tab.id || `real-${cleanUrl}-${index}`,
               title: cleanTitle,
               url: cleanUrl,
               favicon: `https://www.google.com/s2/favicons?domain=${new URL(cleanUrl).hostname}`,
@@ -684,19 +715,10 @@ const TabSenseSidebar: React.FC = () => {
       setIsLoadingTabs(false);
     }
   };
-  const [summaryMessages, setSummaryMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
-  const [summaryShowSuggestions, setSummaryShowSuggestions] = useState(true);
-  const [summaryIsMenuOpen, setSummaryIsMenuOpen] = useState(false);
-  
-  // Conversation History State
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   const filteredTabs = selectedCategory === "all" 
     ? tabs 
     : tabs.filter(tab => tab.category === selectedCategory);
-
-  // Conversation history state
-  const [conversationHistory, setConversationHistory] = useState<Conversation[]>([]);
 
   // Handle data actions from settings
   const handleDataAction = async (action: string, data?: any) => {
@@ -726,9 +748,17 @@ const TabSenseSidebar: React.FC = () => {
     }
   };
 
-  // Load conversations on component mount
+  // Load conversations on component mount and restore state
   useEffect(() => {
-    loadConversationsFromArchive();
+    const initializeConversations = async () => {
+      await loadConversationsFromArchive();
+      
+      // Try to restore the last active conversation (optional - can be enhanced later)
+      // For now, just ensure conversations are loaded
+      console.log('[TabSense] Conversations loaded, ready to use');
+    };
+    
+    initializeConversations();
   }, []);
 
   // Generate suggested questions when Q&A section expands or category changes
@@ -761,31 +791,28 @@ const TabSenseSidebar: React.FC = () => {
     }
   };
 
-  const saveConversationToArchive = async (title: string, messages: Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>) => {
-    const conversationId = `conv-${Date.now()}`;
-    const newConversation = {
-      id: conversationId,
-      title: title
-    };
-    
+  const saveConversationToArchive = async (title: string, messages: Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>, conversationId?: string) => {
     // Store the messages for this conversation in the backend
     try {
       const response = await sendMessageToServiceWorker({
-        action: 'SAVE_CONVERSATION_TO_ARCHIVE',
+        action: conversationId ? 'UPDATE_CONVERSATION_MESSAGES' : 'SAVE_CONVERSATION_TO_ARCHIVE',
+        conversationId, // Pass ID if updating existing
         title,
         messages
       });
       
       if (response.success) {
-    console.log(`Saved conversation "${title}" with ${messages.length} messages to archive`);
-        // Update local state
-        setConversationHistory(prev => [newConversation, ...prev]);
-        setActiveConversationId(conversationId);
+        const savedId = conversationId || response.data?.conversationId || `conv-${Date.now()}`;
+        console.log(`[TabSense] ✅ Saved conversation "${title}" (${savedId}) with ${messages.length} messages`);
+        
+        // Update local state - reload from backend to ensure consistency
+        await loadConversationsFromArchive();
+        setActiveConversationId(savedId);
       } else {
-        console.error('Failed to save conversation to archive:', response.error);
+        console.error('[TabSense] Failed to save conversation to archive:', response.error);
       }
     } catch (error) {
-      console.error('Error saving conversation to archive:', error);
+      console.error('[TabSense] Error saving conversation to archive:', error);
     }
   };
 
@@ -822,13 +849,33 @@ const TabSenseSidebar: React.FC = () => {
     const now = new Date();
     const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
-    const newMessage = { role: "user" as const, content: mainQuestion, timestamp };
+    const questionText = mainQuestion.trim();
+    const newMessage = { role: "user" as const, content: questionText, timestamp };
     const updatedMessages = [...mainMessages, newMessage];
     setMainMessages(updatedMessages);
     setMainQuestion("");
     setIsTyping(true);
+    setLoadingStage('Initializing AI model...');
+    
+    // Progressive loading messages
+    const loadingStages = [
+      { delay: 2000, message: 'Analyzing your question...' },
+      { delay: 4000, message: 'Extracting context from documents...' },
+      { delay: 6000, message: 'Searching external sources...' },
+      { delay: 10000, message: 'This is taking longer than usual...' },
+      { delay: 15000, message: 'Still processing, please wait...' }
+    ];
+    
+    const stageTimers = loadingStages.map(({ delay, message }) => 
+      setTimeout(() => setLoadingStage(message), delay)
+    );
     
     try {
+      // Check service worker status first
+      if (serviceWorkerStatus !== 'connected') {
+        setLoadingStage('Waiting for service worker...');
+      }
+      
       // Get context from all processed tabs
       const contextTabs = tabs.filter(tab => tab.summary && tab.summary.length > 0);
       const context = contextTabs.map(tab => ({
@@ -840,18 +887,24 @@ const TabSenseSidebar: React.FC = () => {
       
       const response = await sendMessageToServiceWorker({
         action: 'ANSWER_QUESTION',
-        question: mainQuestion,
-        context: context
+        question: questionText,
+        context: context,
+        messages: updatedMessages // Pass conversation history for continuity
       });
       
       if (response.success) {
+        // Clear all loading stage timers on success
+        stageTimers.forEach(timer => clearTimeout(timer));
+        
       const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const finalMessages = [...updatedMessages, { 
           role: "assistant" as const, 
           content: response.data.answer, 
-          timestamp: responseTimestamp 
+          timestamp: responseTimestamp,
+          error: false
         }];
       setMainMessages(finalMessages);
+      setLoadingStage(''); // Clear loading stage
       
       // Save to archive after first exchange with AI-generated title
       if (updatedMessages.length === 1) {
@@ -883,16 +936,25 @@ const TabSenseSidebar: React.FC = () => {
       }
     } catch (error) {
       console.error('[TabSense] Q&A Error:', error);
+      // Clear all loading stage timers if they exist
+      if (typeof stageTimers !== 'undefined') {
+        stageTimers.forEach(timer => clearTimeout(timer));
+      }
+      setLoadingStage('');
+      
       const errorMessage = "Sorry, I couldn't process your question right now. Please try again.";
       const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const finalMessages = [...updatedMessages, { 
         role: "assistant" as const, 
         content: errorMessage, 
-        timestamp: responseTimestamp 
+        timestamp: responseTimestamp,
+        error: true,
+        question: questionText // Store question for retry
       }];
       setMainMessages(finalMessages);
     } finally {
       setIsTyping(false);
+      setLoadingStage(''); // Always clear loading stage
     }
   };
 
@@ -902,13 +964,33 @@ const TabSenseSidebar: React.FC = () => {
     const now = new Date();
     const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
-    const newMessage = { role: "user" as const, content: summaryQuestion, timestamp };
+    const questionText = summaryQuestion.trim(); // Capture question before clearing
+    const newMessage = { role: "user" as const, content: questionText, timestamp };
     const updatedMessages = [...summaryMessages, newMessage];
     setSummaryMessages(updatedMessages);
     setSummaryQuestion("");
     setIsTyping(true);
+    setLoadingStage('Initializing AI model...');
+    
+    // Progressive loading messages
+    const loadingStages = [
+      { delay: 2000, message: 'Analyzing your question...' },
+      { delay: 4000, message: 'Extracting context from document...' },
+      { delay: 6000, message: 'Searching external sources...' },
+      { delay: 10000, message: 'This is taking longer than usual...' },
+      { delay: 15000, message: 'Still processing, please wait...' }
+    ];
+    
+    const stageTimers = loadingStages.map(({ delay, message }) => 
+      setTimeout(() => setLoadingStage(message), delay)
+    );
     
     try {
+      // Check service worker status first
+      if (serviceWorkerStatus !== 'connected') {
+        setLoadingStage('Waiting for service worker...');
+      }
+      
       // Get context from the selected summary
       const context = selectedSummaryForQA ? [{
         title: selectedSummaryForQA.title,
@@ -919,58 +1001,87 @@ const TabSenseSidebar: React.FC = () => {
       
       const response = await sendMessageToServiceWorker({
         action: 'ANSWER_QUESTION',
-        question: summaryQuestion,
-        context: context
+        question: questionText, // Use captured question, not cleared state
+        context: context,
+        messages: updatedMessages // Pass conversation history for continuity
       });
       
       if (response.success) {
+        // Clear all loading stage timers on success
+        stageTimers.forEach(timer => clearTimeout(timer));
+        
       const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const finalMessages = [...updatedMessages, { 
           role: "assistant" as const, 
           content: response.data.answer, 
-          timestamp: responseTimestamp 
+          timestamp: responseTimestamp,
+          sources: response.data.sources || [],
+          error: false
         }];
       setSummaryMessages(finalMessages);
+      setLoadingStage(''); // Clear loading stage
       
-      // Save to archive after first exchange with AI-generated title from summary
-      if (updatedMessages.length === 1) {
-        try {
-          // Generate AI title from summary content
-          const titleResponse = await sendMessageToServiceWorker({
-            action: 'GENERATE_CONVERSATION_TITLE',
-            messages: [{
-              role: 'assistant',
-              content: selectedSummaryForQA?.summary || 'Content summary'
-            }]
+      // Conversation was already saved when Ask Questions was clicked
+      // Just update it with the new message
+      try {
+        // Get the active conversation ID
+        const conversationsResponse = await sendMessageToServiceWorker({
+          action: 'GET_ARCHIVE_CONVERSATIONS'
+        });
+        
+        if (conversationsResponse.success && activeConversationId) {
+          // Update using the stored conversation ID
+          await sendMessageToServiceWorker({
+            action: 'UPDATE_CONVERSATION_MESSAGES',
+            conversationId: activeConversationId,
+            title: conversationTitle || selectedSummaryForQA?.title || 'Conversation',
+            messages: finalMessages
           });
+          console.log('[TabSense] ✅ Updated conversation', activeConversationId, 'with new message');
+        } else if (selectedSummaryForQA) {
+          // Fallback: try to find by tab context
+          const existingConv = conversationsResponse.data.conversations.find((conv: any) => 
+            conv.tabId === selectedSummaryForQA.id || conv.tabUrl === selectedSummaryForQA.url
+          );
           
-          const conversationTitle = titleResponse.success && titleResponse.data?.title
-            ? `Summary: ${titleResponse.data.title}`
-            : `Summary: ${selectedSummaryForQA?.title || 'Unknown Summary'}`;
-          
-          saveConversationToArchive(conversationTitle, finalMessages);
-        } catch (error) {
-          console.error('[TabSense] Error generating conversation title:', error);
-          // Fallback to simple title
-          const fallbackTitle = `Summary: ${selectedSummaryForQA?.title || 'Unknown Summary'}`;
-          saveConversationToArchive(fallbackTitle, finalMessages);
+          if (existingConv) {
+            await sendMessageToServiceWorker({
+              action: 'UPDATE_CONVERSATION_MESSAGES',
+              conversationId: existingConv.id,
+              title: conversationTitle || selectedSummaryForQA.title || 'Conversation',
+              messages: finalMessages
+            });
+            setActiveConversationId(existingConv.id);
+            console.log('[TabSense] ✅ Updated conversation (found by tab context):', existingConv.id);
+          }
         }
+      } catch (error) {
+        console.error('[TabSense] Error updating conversation:', error);
       }
       } else {
         throw new Error(response.error || 'Failed to get AI response');
       }
     } catch (error) {
       console.error('[TabSense] Summary Q&A Error:', error);
+      // Clear all loading stage timers if they exist
+      if (typeof stageTimers !== 'undefined') {
+        stageTimers.forEach(timer => clearTimeout(timer));
+      }
+      setLoadingStage('');
+      
       const errorMessage = "Sorry, I couldn't process your question about this summary right now. Please try again.";
       const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const finalMessages = [...updatedMessages, { 
         role: "assistant" as const, 
         content: errorMessage, 
-        timestamp: responseTimestamp 
+        timestamp: responseTimestamp,
+        error: true,
+        question: questionText // Store question for retry
       }];
       setSummaryMessages(finalMessages);
     } finally {
       setIsTyping(false);
+      setLoadingStage(''); // Always clear loading stage
     }
   };
 
@@ -1021,20 +1132,110 @@ const TabSenseSidebar: React.FC = () => {
   };
 
   const openSummaryQA = async (tab: TabSummary) => {
-    // Create a new conversation with the full summary
-    const conversationId = `summary-${tab.id}-${Date.now()}`;
+    // First, check if conversation already exists BEFORE clearing state
+    let existingConversation: Conversation | null = null;
+    
+    try {
+      const conversationsResponse = await sendMessageToServiceWorker({
+        action: 'GET_ARCHIVE_CONVERSATIONS'
+      });
+      
+      if (conversationsResponse.success) {
+        // Check if a conversation exists for THIS SPECIFIC TAB
+        const foundConversation = conversationsResponse.data.conversations.find(
+          (conv: any) => {
+            // Match by tab.id if stored in conversation metadata
+            if (conv.tabId === tab.id) {
+              return true;
+            }
+            // Fallback: Match by exact URL match in first message AND check it's from the same source
+            const firstMessage = conv.messages?.[0];
+            if (firstMessage?.content && tab.url) {
+              const urlPattern = new RegExp(`\\b${tab.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+              if (urlPattern.test(firstMessage.content)) {
+                const summaryStart = tab.summary.substring(0, 100);
+                const messageStart = firstMessage.content.substring(0, 100);
+                if (summaryStart === messageStart) {
+                  return true;
+                }
+              }
+            }
+            return false;
+          }
+        );
+        
+        if (foundConversation) {
+          existingConversation = foundConversation as Conversation;
+        }
+      }
+    } catch (error) {
+      console.error('[TabSense] Error checking for existing conversation:', error);
+    }
+    
+    // If conversation exists, RESTORE it fully instead of starting fresh
+    if (existingConversation) {
+      console.log('[TabSense] 🔄 Restoring existing conversation:', existingConversation.id);
+      
+      // Restore the FULL conversation state
+      setSummaryMessages(existingConversation.messages || []);
+      setConversationTitle(existingConversation.title || tab.title);
+      setActiveConversationId(existingConversation.id || null);
+      
+      // Restore tab context
+      setSelectedSummaryForQA(tab);
+      setIsSummaryQAExpanded(true);
+      setSummaryQuestion("");
+      setSummaryShowSuggestions(true);
+      setSummaryIsMenuOpen(false);
+      
+      // Only generate suggested questions if they don't exist already (prevent regeneration)
+      // Check if conversation has suggestedQuestions stored or use existing ones
+      if (existingConversation.suggestedQuestions && existingConversation.suggestedQuestions.length > 0) {
+        setSummarySuggestedQuestions(existingConversation.suggestedQuestions);
+        console.log('[TabSense] Using stored suggested questions for existing conversation');
+      } else {
+        // Generate suggested questions only if not stored
+        try {
+          const summaryForQuestions = existingConversation.tabSummary || tab.summary;
+          const categoryForQuestions = existingConversation.tabCategory || tab.category;
+          const titleForQuestions = existingConversation.tabTitle || tab.title;
+          
+          const questionsResponse = await sendMessageToServiceWorker({
+            action: 'GENERATE_SUGGESTED_QUESTIONS',
+            summary: summaryForQuestions,
+            category: categoryForQuestions,
+            title: titleForQuestions
+          });
+          
+          if (questionsResponse.success && questionsResponse.data?.questions) {
+            setSummarySuggestedQuestions(questionsResponse.data.questions);
+            console.log('[TabSense] Generated suggested questions for existing conversation');
+            // Store questions in conversation for future use
+            await sendMessageToServiceWorker({
+              action: 'UPDATE_CONVERSATION_MESSAGES',
+              conversationId: existingConversation.id,
+              title: existingConversation.title,
+              messages: existingConversation.messages,
+              suggestedQuestions: questionsResponse.data.questions
+            });
+          }
+        } catch (error) {
+          console.error('[TabSense] Error generating suggested questions:', error);
+        }
+      }
+      
+      return; // Don't create a new conversation
+    }
+    
+    // NEW conversation - create from scratch
+    console.log('[TabSense] ✨ Creating new conversation for tab:', tab.id);
+    
+    // Clear previous state to ensure fresh start for each tab
+    setConversationTitle('');
+    setSummaryMessages([]);
     
     // Use the AI-generated summary as-is - it already has proper formatting
     let formattedContent = tab.summary;
-    
-    // Remove any duplicate key points sections we might have added earlier
-    const keyPointsMatch = formattedContent.match(/\*\*Key (Points|Facts|Takeaways)\*\*[\s\S]*?(?=\n\*\*|$)/i);
-    if (keyPointsMatch && tab.keyPoints && tab.keyPoints.length > 0) {
-      // The summary already has key points from AI, don't add duplicate
-    } else if (tab.keyPoints && tab.keyPoints.length > 0) {
-      // Only add if summary doesn't have it and we have AI-generated key points
-      formattedContent += `\n\n**Key Points**\n${tab.keyPoints.map(point => `• ${point}`).join('\n')}`;
-    }
     
     const summaryMessage = {
       role: "assistant" as const,
@@ -1049,7 +1250,95 @@ const TabSenseSidebar: React.FC = () => {
     setSelectedSummaryForQA(tab);
     setIsSummaryQAExpanded(true);
     
-    // Generate AI suggested questions based on the summary
+    // Generate AI title and save conversation immediately
+    let generatedTitle = tab.title; // Declare outside try block so it's accessible later
+    try {
+      console.log('[TabSense] Generating conversation title for tab:', tab.title);
+      console.log('[TabSense] Summary content length:', formattedContent?.length || 0);
+      
+      const titleResponse = await sendMessageToServiceWorker({
+        action: 'GENERATE_CONVERSATION_TITLE',
+        messages: [summaryMessage]
+      });
+      
+      console.log('[TabSense] Title response for tab:', tab.title, titleResponse);
+      
+      generatedTitle = tab.title; // Fallback to tab title
+      
+      if (titleResponse && titleResponse.success && titleResponse.data?.title) {
+        generatedTitle = titleResponse.data.title;
+        console.log('[TabSense] ✅ Successfully generated title:', generatedTitle);
+      } else {
+        console.log('[TabSense] ⚠️ Title generation failed or returned no title, using fallback:', tab.title);
+      }
+      
+      // Update the conversation title in state
+      setConversationTitle(generatedTitle);
+      
+      // Create new conversation with FULL tab context for future Q&A
+      const conversationWithMetadata = {
+        ...summaryMessage,
+        tabId: tab.id,
+        tabUrl: tab.url,
+        tabTitle: tab.title,
+        tabSummary: tab.summary, // Store summary so Q&A works independently
+        tabCategory: tab.category // Store category for suggested questions
+      };
+      
+      // Save conversation first, then update with suggested questions if available
+      await saveConversationToArchive(generatedTitle, [conversationWithMetadata]);
+      
+      // Store suggested questions in conversation if they were generated
+      if (summarySuggestedQuestions.length > 0) {
+        try {
+          // Find the conversation we just created to update it with questions
+          const conversationsResponse = await sendMessageToServiceWorker({
+            action: 'GET_ARCHIVE_CONVERSATIONS'
+          });
+          if (conversationsResponse.success) {
+            const newConversation = conversationsResponse.data.conversations.find((conv: any) => 
+              conv.tabId === tab.id || (conv.title === generatedTitle && conv.messages?.length === 1)
+            );
+            if (newConversation) {
+              await sendMessageToServiceWorker({
+                action: 'UPDATE_CONVERSATION_MESSAGES',
+                conversationId: newConversation.id,
+                title: generatedTitle,
+                messages: [conversationWithMetadata],
+                suggestedQuestions: summarySuggestedQuestions
+              });
+            }
+          }
+        } catch (error) {
+          console.error('[TabSense] Error saving suggested questions:', error);
+        }
+      }
+      
+      console.log('[TabSense] ✅ New conversation saved with title:', generatedTitle, 'for tab:', tab.id);
+    } catch (error) {
+      console.error('[TabSense] ❌ Error in openSummaryQA:', error);
+      // Fallback title
+      const fallbackTitle = tab.title;
+      setConversationTitle(fallbackTitle);
+      
+      // Always save with fallback - include full context
+      try {
+        const conversationWithMetadata = {
+          ...summaryMessage,
+          tabId: tab.id,
+          tabUrl: tab.url,
+          tabTitle: tab.title,
+          tabSummary: tab.summary,
+          tabCategory: tab.category
+        };
+        await saveConversationToArchive(fallbackTitle, [conversationWithMetadata]);
+        console.log('[TabSense] Saved conversation with fallback title:', fallbackTitle);
+      } catch (saveError) {
+        console.error('[TabSense] Failed to save conversation with fallback:', saveError);
+      }
+    }
+    
+    // Generate AI suggested questions based on the summary (only once, not on every restore)
     try {
       const questionsResponse = await sendMessageToServiceWorker({
         action: 'GENERATE_SUGGESTED_QUESTIONS',
@@ -1061,6 +1350,31 @@ const TabSenseSidebar: React.FC = () => {
       if (questionsResponse.success && questionsResponse.data?.questions) {
         setSummarySuggestedQuestions(questionsResponse.data.questions);
         console.log('[TabSense] Generated suggested questions:', questionsResponse.data.questions);
+        
+        // Store questions in conversation immediately
+        // Use the current conversationTitle or generatedTitle if available
+        const currentTitle = conversationTitle || generatedTitle || tab.title;
+        try {
+          const conversationsResponse = await sendMessageToServiceWorker({
+            action: 'GET_ARCHIVE_CONVERSATIONS'
+          });
+          if (conversationsResponse.success) {
+            const newConversation = conversationsResponse.data.conversations.find((conv: any) => 
+              conv.tabId === tab.id || (conv.title === currentTitle && conv.messages?.length === 1)
+            );
+            if (newConversation) {
+              await sendMessageToServiceWorker({
+                action: 'UPDATE_CONVERSATION_MESSAGES',
+                conversationId: newConversation.id,
+                title: currentTitle,
+                messages: [summaryMessage],
+                suggestedQuestions: questionsResponse.data.questions
+              });
+            }
+          }
+        } catch (error) {
+          console.error('[TabSense] Error saving suggested questions:', error);
+        }
       }
     } catch (error) {
       console.error('[TabSense] Error generating suggested questions:', error);
@@ -1069,10 +1383,14 @@ const TabSenseSidebar: React.FC = () => {
   };
 
   const closeSummaryQA = () => {
+    // DON'T clear everything - preserve state so it can be restored
+    // Only close the UI, keep the conversation data
     setIsSummaryQAExpanded(false);
-    setSelectedSummaryForQA(null);
-    setSummaryMessages([]);
-    setSummaryQuestion("");
+    // Keep selectedSummaryForQA, messages, and title for potential restoration
+    // setSelectedSummaryForQA(null);
+    // setSummaryMessages([]);
+    // setConversationTitle('');
+    setSummaryQuestion(""); // Only clear the input
     setSummaryShowSuggestions(true);
     setSummaryIsMenuOpen(false);
   };
@@ -1110,9 +1428,10 @@ const TabSenseSidebar: React.FC = () => {
             activeConversationId={activeConversationId}
             onClose={() => setIsArchiveExpanded(false)}
             onLoadConversation={async (id) => {
-              console.log('Load conversation:', id);
+              console.log('[TabSense] Load conversation from history:', id);
               setActiveConversationId(id);
-              setIsArchiveExpanded(false);
+              // IMPORTANT: Set Q&A expanded FIRST to prevent showing tab list view
+              setIsSummaryQAExpanded(true);
               
               try {
                 // Get the conversation from backend
@@ -1123,18 +1442,89 @@ const TabSenseSidebar: React.FC = () => {
                 if (response.success) {
                   const conversation = response.data.conversations.find((conv: any) => conv.id === id);
                   if (conversation) {
-                    setMainMessages(conversation.messages || []);
-              } else {
-                    console.error('Conversation not found:', id);
-                    setMainMessages([]);
+                    console.log('[TabSense] Loading conversation:', conversation.title);
+                    console.log('[TabSense] Conversation has', conversation.messages?.length || 0, 'messages');
+                    console.log('[TabSense] Conversation context:', {
+                      tabUrl: conversation.tabUrl,
+                      tabTitle: conversation.tabTitle,
+                      hasSummary: !!conversation.tabSummary
+                    });
+                    
+                    // Restore conversation state
+                    setSummaryMessages(conversation.messages || []);
+                    setConversationTitle(conversation.title);
+                    
+                    // Restore tab context from stored metadata so Q&A works
+                    if (conversation.tabSummary && conversation.tabUrl) {
+                      const restoredTab: TabSummary = {
+                        id: conversation.tabId || `restored-${id}`,
+                        title: conversation.tabTitle || conversation.title,
+                        url: conversation.tabUrl,
+                        summary: conversation.tabSummary,
+                        category: conversation.tabCategory || 'generic',
+                        favicon: Globe,
+                        keyPoints: [],
+                        analyzing: false
+                      };
+                      setSelectedSummaryForQA(restoredTab);
+                      
+                      // Only generate suggested questions if they don't exist already (prevent regeneration)
+                      if (conversation.suggestedQuestions && conversation.suggestedQuestions.length > 0) {
+                        setSummarySuggestedQuestions(conversation.suggestedQuestions);
+                        console.log('[TabSense] Using stored suggested questions for loaded conversation');
+                      } else {
+                        // Generate suggested questions only if not stored
+                        try {
+                          const questionsResponse = await sendMessageToServiceWorker({
+                            action: 'GENERATE_SUGGESTED_QUESTIONS',
+                            summary: conversation.tabSummary,
+                            category: conversation.tabCategory || 'generic',
+                            title: conversation.tabTitle || conversation.title
+                          });
+                          
+                          if (questionsResponse.success && questionsResponse.data?.questions) {
+                            setSummarySuggestedQuestions(questionsResponse.data.questions);
+                            console.log('[TabSense] Generated suggested questions for loaded conversation');
+                            // Store questions in conversation for future use
+                            await sendMessageToServiceWorker({
+                              action: 'UPDATE_CONVERSATION_MESSAGES',
+                              conversationId: conversation.id,
+                              title: conversation.title,
+                              messages: conversation.messages,
+                              suggestedQuestions: questionsResponse.data.questions
+                            });
+                          }
+                        } catch (error) {
+                          console.error('[TabSense] Error generating questions for loaded conversation:', error);
+                        }
+                      }
+                    } else {
+                      // No stored context - conversation might be old format
+                      console.warn('[TabSense] Loaded conversation has no stored context (old format?)');
+                      setSelectedSummaryForQA(null);
+                    }
+                    
+                    setSummaryQuestion("");
+                    setSummaryShowSuggestions(true);
+                    
+                    // Close archive AFTER Q&A is set up
+                    setIsArchiveExpanded(false);
+                    
+                    console.log('[TabSense] ✅ Conversation loaded successfully');
+                  } else {
+                    console.error('[TabSense] Conversation not found:', id);
+                    setSummaryMessages([]);
+                    setIsArchiveExpanded(false);
                   }
                 } else {
-                  console.error('Failed to load conversation:', response.error);
-                  setMainMessages([]);
+                  console.error('[TabSense] Failed to load conversation:', response.error);
+                  setSummaryMessages([]);
+                  setIsArchiveExpanded(false);
                 }
               } catch (error) {
-                console.error('Error loading conversation:', error);
-                setMainMessages([]);
+                console.error('[TabSense] Error loading conversation:', error);
+                setSummaryMessages([]);
+                setIsArchiveExpanded(false);
               }
             }}
             onShareConversation={(id) => console.log('Share conversation:', id)}
@@ -1182,8 +1572,49 @@ const TabSenseSidebar: React.FC = () => {
               }}
             onClose={closeSummaryQA}
             suggestedQuestions={summarySuggestedQuestions}
+            conversationTitle={conversationTitle}
+            loadingStage={loadingStage}
+            serviceWorkerStatus={serviceWorkerStatus}
             onRegenerateQuestions={async () => {
-              if (!selectedSummaryForQA) return;
+              // Works for both active tabs and loaded conversations
+              const summaryForQuestions = selectedSummaryForQA?.summary || 
+                (activeConversationId ? (() => {
+                  // Try to get summary from loaded conversation
+                  const conv = conversationHistory.find(c => c.id === activeConversationId);
+                  return null; // Will need to fetch from backend
+                })() : null);
+              
+              if (!selectedSummaryForQA) {
+                // Try to load conversation context if we have activeConversationId
+                if (activeConversationId) {
+                  try {
+                    const convResponse = await sendMessageToServiceWorker({
+                      action: 'GET_ARCHIVE_CONVERSATIONS'
+                    });
+                    const conversation = convResponse.data?.conversations?.find((c: any) => c.id === activeConversationId);
+                    if (conversation?.tabSummary) {
+                      setIsRegeneratingSummaryQuestions(true);
+                      const questionsResponse = await sendMessageToServiceWorker({
+                        action: 'GENERATE_SUGGESTED_QUESTIONS',
+                        summary: conversation.tabSummary,
+                        category: conversation.tabCategory || 'generic',
+                        title: conversation.tabTitle || conversation.title
+                      });
+                      
+                      if (questionsResponse.success && questionsResponse.data?.questions) {
+                        setSummarySuggestedQuestions(questionsResponse.data.questions);
+                        console.log('[TabSense] Regenerated suggested questions for loaded conversation');
+                      }
+                      setIsRegeneratingSummaryQuestions(false);
+                      return;
+                    }
+                  } catch (error) {
+                    console.error('[TabSense] Error loading conversation for questions:', error);
+                  }
+                }
+                return;
+              }
+              
               setIsRegeneratingSummaryQuestions(true);
               try {
                 const questionsResponse = await sendMessageToServiceWorker({
@@ -1408,36 +1839,21 @@ const TabSenseSidebar: React.FC = () => {
                           </div>
                         )}
                         
-                        {/* Expanded content */}
+                        {/* Expanded content - Show only a preview */}
                         {expandedTabId === tab.id && !tab.analyzing && (
                           <div className="animate-fade-in mt-3 space-y-3 overflow-hidden">
-                            {/* Summary Section */}
+                            {/* Summary Preview - Just show more text */}
                             <div className="space-y-1.5 overflow-hidden">
-                              <div className="flex items-center gap-1.5">
-                                <Brain className="w-4 h-4 text-primary" />
-                                <h4 className="text-xs font-bold text-foreground">Summary</h4>
-                              </div>
-                              <p className="text-xs text-muted elemental leading-relaxed pl-6 break-words whitespace-pre-line">
-                                {tab.summary}
+                              <p className="text-xs text-muted-foreground leading-relaxed break-words">
+                                {(() => {
+                                  // Show the full Main Topic section plus a bit more
+                                  const fullSummary = tab.summary;
+                                  const preview = fullSummary.length > 300 
+                                    ? fullSummary.substring(0, 300) + '...' 
+                                    : fullSummary;
+                                  return preview;
+                                })()}
                               </p>
-                            </div>
-
-                            {/* Key Points */}
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-1.5">
-                                <Lightbulb className="w-4 h-4 text-primary" />
-                                <h4 className="text-xs font-bold text-foreground">Key Points</h4>
-                              </div>
-                              <div className="pl-6 space-y-2">
-                                <ul className="space-y-1.5">
-                                  {tab.keyPoints.map((point, idx) => (
-                                    <li key={idx} className="text-xs text-muted-foreground flex items-start gap-2 overflow-hidden">
-                                      <span className="text-primary mt-0.5 flex-shrink-0">•</span>
-                                      <span className="flex-1 break-words">{point}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
                             </div>
 
                                 {/* YouTube-specific information */}
@@ -1561,6 +1977,8 @@ const TabSenseSidebar: React.FC = () => {
               setIsMenuOpen(false);
             }}
             suggestedQuestions={mainSuggestedQuestions}
+            loadingStage={loadingStage}
+            serviceWorkerStatus={serviceWorkerStatus}
             onRegenerateQuestions={async () => {
               setIsRegeneratingMainQuestions(true);
               try {

@@ -31,6 +31,9 @@ interface QASectionProps {
   suggestedQuestions?: string[];
   onRegenerateQuestions?: () => Promise<void>;
   isRegeneratingQuestions?: boolean;
+  conversationTitle?: string;
+  loadingStage?: string; // Enhanced loading stage message
+  serviceWorkerStatus?: 'connected' | 'connecting' | 'error';
 }
 
 const QASection: React.FC<QASectionProps> = ({
@@ -48,8 +51,19 @@ const QASection: React.FC<QASectionProps> = ({
   onClose,
   suggestedQuestions = [],
   onRegenerateQuestions,
-  isRegeneratingQuestions = false
+  isRegeneratingQuestions = false,
+  conversationTitle,
+  loadingStage,
+  serviceWorkerStatus
 }) => {
+  // Create retry handler
+  const handleRetry = (retryQuestion: string) => {
+    setQuestion(retryQuestion);
+    // Auto-submit after setting question
+    setTimeout(() => {
+      onAskQuestion();
+    }, 100);
+  };
   // Empty fallback - let the empty state handle the UI when no questions are available
   const fallbackQuestions: Array<{ text: string; icon: any }> = [];
 
@@ -69,7 +83,7 @@ const QASection: React.FC<QASectionProps> = ({
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
             <Sparkles className="w-3 h-3 text-primary" />
-            {messages.length > 0 && messages[0].role === "assistant" && messages[0].content.includes("**") ? "Conversation" : "Ask Questions"}
+            {conversationTitle || (messages.length > 0 && messages[0].role === "assistant" && messages[0].content.includes("**") ? "Conversation" : "Ask Questions")}
           </h2>
           {onClose && (
             <button
@@ -86,18 +100,20 @@ const QASection: React.FC<QASectionProps> = ({
         {!isCollapsed && (
           <>
             {/* Scrollable Text Area - Full height with padding at bottom */}
-            <div className="flex-1 overflow-hidden mb-2">
+            <div className="flex-1 overflow-hidden mb-20 pb-4">
               <TextArea 
                 messages={messages} 
                 showSuggestions={showSuggestions} 
-                isTyping={isTyping} 
+                isTyping={isTyping}
+                onRetry={handleRetry}
+                loadingStage={loadingStage}
               />
             </div>
 
             {/* Suggested Questions Section - Floating between text and input */}
             {showSuggestions && (
               <div className="absolute left-3 right-3 bg-white rounded-lg border border-border/20 shadow-sm z-10"
-                   style={{ bottom: '72px' }}>
+                   style={{ bottom: '88px' }}>
                 <SuggestedQuestionsSection
                   showSuggestions={showSuggestions}
                   setShowSuggestions={setShowSuggestions}
@@ -113,60 +129,62 @@ const QASection: React.FC<QASectionProps> = ({
 
                 {/* Show suggestions button when hidden - Removed, will be in the input area */}
 
-            {/* Input Section - Fixed at bottom */}
-            <div className="absolute bottom-2 left-3 right-3 z-20">
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Input
-                    placeholder="Ask about this summary..."
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && !isTyping && onAskQuestion()}
-                disabled={isTyping}
-                    className="w-full pr-20 bg-white hover:bg-gray-50 border-border/20 focus:border-primary/50 transition-all shadow-sm"
-              />
-              <button
-                onClick={onAskQuestion}
-                disabled={!question.trim() || isTyping}
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 rounded-md hover:bg-muted/70 transition-colors disabled:opacity-50"
-              >
-                {isTyping ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : (
-                      <Send className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
-            </div>
-                <div className="flex gap-1">
-                  {!showSuggestions && (
+            {/* Input Section - Fixed at bottom in white container */}
+            <div className="absolute bottom-0 left-0 right-0 z-20 px-3 pb-2">
+              <div className="bg-white rounded-lg shadow-sm border border-border/20 p-3">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      placeholder="Ask about this summary..."
+                      value={question}
+                      onChange={(e) => setQuestion(e.target.value)}
+                      onKeyPress={(e) => e.key === "Enter" && !isTyping && onAskQuestion()}
+                      disabled={isTyping}
+                      className="w-full pr-20 bg-white hover:bg-gray-50 border-border/20 focus:border-primary/50 transition-all shadow-sm"
+                    />
+                    <button
+                      onClick={onAskQuestion}
+                      disabled={!question.trim() || isTyping}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 rounded-md hover:bg-muted/70 transition-colors disabled:opacity-50"
+                    >
+                      {isTyping ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      ) : (
+                        <Send className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </button>
+                  </div>
+                  <div className="flex gap-1">
+                    {!showSuggestions && (
+                      <Button 
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setShowSuggestions(true)}
+                        className="h-10 w-10 hover:bg-muted/50"
+                        title="Show suggestions"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button 
                       size="icon"
                       variant="ghost"
-                      onClick={() => setShowSuggestions(true)}
                       className="h-10 w-10 hover:bg-muted/50"
-                      title="Show suggestions"
                     >
-                      <Eye className="h-4 w-4" />
+                      <Download className="h-4 w-4" />
                     </Button>
-                  )}
-                  <Button 
-                    size="icon"
-                    variant="ghost"
-                    className="h-10 w-10 hover:bg-muted/50"
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                  <Button 
-                    size="icon"
-                    variant="ghost"
-                  onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    className="h-10 w-10 hover:bg-muted/50"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
+                    <Button 
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setIsMenuOpen(!isMenuOpen)}
+                      className="h-10 w-10 hover:bg-muted/50"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                      </div>
-                    </div>
+              </div>
+            </div>
                   </>
                 )}
       </div>
