@@ -1030,11 +1030,15 @@ const TabSenseSidebar: React.FC = () => {
         });
         
         if (conversationsResponse.success && activeConversationId) {
+          // Get the existing conversation to preserve its title
+          const existingConv = conversationsResponse.data.conversations.find((conv: any) => conv.id === activeConversationId);
+          const preservedTitle = existingConv?.title || conversationTitle || selectedSummaryForQA?.title;
+          
           // Update using the stored conversation ID
           await sendMessageToServiceWorker({
             action: 'UPDATE_CONVERSATION_MESSAGES',
             conversationId: activeConversationId,
-            title: conversationTitle || selectedSummaryForQA?.title || 'Conversation',
+            title: preservedTitle, // Use existing title if available, only fallback if none exists
             messages: finalMessages
           });
           console.log('[TabSense] ✅ Updated conversation', activeConversationId, 'with new message');

@@ -120,18 +120,46 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
     const lineElements: React.ReactNode[] = [];
     let keyCounter = keyOffset;
     
+    // Expanded emoji list for headers
+    const headerEmojis = /^([📰📌💭🎥🎯✨💡🔑👤💬📖🛠️🌍📊💼🔬🚀⚡🌱🏢💸📈📉💰🎯🎨🏭⚙️🔧🛡️🌐⚖️🔍📝💼])/;
+    
     lines.forEach((line, lineIdx) => {
       const trimmedLine = line.trim();
       const isBlankLine = trimmedLine === '';
       
-      // Check if it's a bullet point (starts with •, -, *, or is indented)
+      // Check if it's a bullet point (starts with •, -, *, or numbered, or looks like a list item)
       const bulletMatch = trimmedLine.match(/^([•\-\*]|\d+\.)\s+(.+)$/);
       
-      // Check if it's a section header (starts with emoji + bold or just bold at start of line)
-      const headerMatch = trimmedLine.match(/^([📰📌💭🎥🎯✨💡🔑👤💬📖🛠️🌍📊])?\s*\*\*([^*]+)\*\*(.*)$/);
+      // Check if it's a section header with emoji + bold markers: 🛠️ **Header Text**
+      const headerWithBoldMatch = trimmedLine.match(/^([📰📌💭🎥🎯✨💡🔑👤💬📖🛠️🌍📊💼🔬🚀⚡🌱🏢💸📈📉💰🎯🎨🏭⚙️🔧🛡️🌐⚖️🔍📝💼])?\s*\*\*([^*]+)\*\*(.*)$/);
+      
+      // Check if it's a section header with emoji but NO bold markers: 🛠️ Header Text (common in Q&A)
+      const headerWithEmojiOnlyMatch = trimmedLine.match(/^([📰📌💭🎥🎯✨💡🔑👤💬📖🛠️🌍📊💼🔬🚀⚡🌱🏢💸📈📉💰🎯🎨🏭⚙️🔧🛡️🌐⚖️🔍📝💼])\s+(.+)$/);
+      
+      // Check if line starts with bold markers (without emoji): **Header Text**
+      const headerBoldOnlyMatch = trimmedLine.match(/^\*\*([^*]+)\*\*(.*)$/);
+      
+      // Check if previous line was a header
+      const prevLineWasHeader = lineIdx > 0 && (
+        lines[lineIdx - 1].trim().match(/^([📰📌💭🎥🎯✨💡🔑👤💬📖🛠️🌍📊💼🔬🚀⚡🌱🏢💸📈📉💰🎯🎨🏭⚙️🔧🛡️🌐⚖️🔍📝💼])/) ||
+        lines[lineIdx - 1].trim().match(/^\*\*[^*]+\*\*/)
+      );
+      
+      // Check if it looks like a bullet point item (short line after header, or line after blank line)
+      const isListContext = prevLineWasHeader || 
+        (lineIdx > 0 && lines[lineIdx - 1].trim() === '');
+      
+      const looksLikeListItem = isListContext && 
+        trimmedLine.length > 0 &&
+        trimmedLine.length < 350 && // Reasonable line length for a list item
+        !trimmedLine.match(/^[📰📌💭🎥🎯✨💡🔑👤💬📖🛠️🌍📊💼🔬🚀⚡🌱🏢💸📈📉💰🎯🎨🏭⚙️🔧🛡️🌐⚖️🔍📝💼]/) && // Not a header
+        !trimmedLine.match(/^\*\*[^*]+\*\*/) && // Not a header with bold
+        !trimmedLine.match(/^([•\-\*]|\d+\.)\s+/) && // Not already a marked bullet
+        !trimmedLine.toLowerCase().startsWith('you might') && // Not the "suggested questions" section
+        !trimmedLine.toLowerCase().startsWith('if you');
       
       if (bulletMatch) {
-        // It's a bullet point
+        // It's a bullet point with marker
         const bulletContent = bulletMatch[2];
         lineElements.push(
           <div key={`bullet-${keyCounter + lineIdx}`} className="flex items-start gap-2 my-1">
@@ -139,11 +167,11 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
             <span className="flex-1">{parseInlineMarkdown(bulletContent, keyCounter + lineIdx * 100)}</span>
           </div>
         );
-      } else if (headerMatch) {
-        // It's a header with optional emoji
-        const emoji = headerMatch[1] || '';
-        const headerText = headerMatch[2];
-        const restText = headerMatch[3];
+      } else if (headerWithBoldMatch) {
+        // Header with emoji + bold markers
+        const emoji = headerWithBoldMatch[1] || '';
+        const headerText = headerWithBoldMatch[2];
+        const restText = headerWithBoldMatch[3];
         lineElements.push(
           <div key={`header-${keyCounter + lineIdx}`} className="my-2">
             <h4 className="font-semibold text-foreground flex items-center gap-2">
@@ -157,42 +185,54 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
             )}
           </div>
         );
-      } else if (trimmedLine.match(/^\*\*[^*]+\*\*/)) {
-        // Line starts with bold (header without emoji)
-        const boldMatch = trimmedLine.match(/^\*\*([^*]+)\*\*(.*)$/);
-        if (boldMatch) {
-          lineElements.push(
-            <div key={`header-${keyCounter + lineIdx}`} className="my-2">
-              <h4 className="font-semibold text-foreground">{boldMatch[1]}</h4>
-              {boldMatch[2].trim() && (
-                <div className="mt-1">
-                  {parseInlineMarkdown(boldMatch[2].trim(), keyCounter + lineIdx * 100 + 1)}
-                </div>
-              )}
-            </div>
-          );
-        } else {
-          // Regular line with inline markdown
-          lineElements.push(
-            <div key={`line-${keyCounter + lineIdx}`}>
-              {isBlankLine ? <br /> : parseInlineMarkdown(line, keyCounter + lineIdx * 100)}
-            </div>
-          );
-        }
+      } else if (headerWithEmojiOnlyMatch) {
+        // Header with emoji but NO bold markers (common in Q&A answers)
+        const emoji = headerWithEmojiOnlyMatch[1];
+        const headerText = headerWithEmojiOnlyMatch[2];
+        lineElements.push(
+          <div key={`header-${keyCounter + lineIdx}`} className="my-2">
+            <h4 className="font-semibold text-foreground flex items-center gap-2">
+              <span>{emoji}</span>
+              <span>{parseInlineMarkdown(headerText, keyCounter + lineIdx * 100)}</span>
+            </h4>
+          </div>
+        );
+      } else if (headerBoldOnlyMatch) {
+        // Header with bold markers only (no emoji)
+        const headerText = headerBoldOnlyMatch[1];
+        const restText = headerBoldOnlyMatch[2];
+        lineElements.push(
+          <div key={`header-${keyCounter + lineIdx}`} className="my-2">
+            <h4 className="font-semibold text-foreground">{headerText}</h4>
+            {restText.trim() && (
+              <div className="mt-1">
+                {parseInlineMarkdown(restText.trim(), keyCounter + lineIdx * 100 + 1)}
+              </div>
+            )}
+          </div>
+        );
+      } else if (looksLikeListItem) {
+        // List item following a header - format as bullet point
+        lineElements.push(
+          <div key={`bullet-${keyCounter + lineIdx}`} className="flex items-start gap-2 my-1">
+            <span className="text-muted-foreground mt-0.5 flex-shrink-0">•</span>
+            <span className="flex-1">{parseInlineMarkdown(trimmedLine, keyCounter + lineIdx * 100)}</span>
+          </div>
+        );
       } else if (isBlankLine) {
         // Blank line - add spacing
         lineElements.push(<br key={`blank-${keyCounter + lineIdx}`} />);
       } else {
         // Regular line with inline markdown
         lineElements.push(
-          <div key={`line-${keyCounter + lineIdx}`}>
-            {parseInlineMarkdown(line, keyCounter + lineIdx * 100)}
+          <div key={`line-${keyCounter + lineIdx}`} className="my-1">
+            {parseInlineMarkdown(trimmedLine, keyCounter + lineIdx * 100)}
           </div>
         );
       }
     });
     
-    return <div className="space-y-1">{lineElements}</div>;
+    return <div className="space-y-0.5">{lineElements}</div>;
   };
 
   // Parse inline markdown (bold within text)

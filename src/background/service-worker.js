@@ -169,7 +169,7 @@ class WebSearchService {
               }
             }
           }
-        } catch (error) {
+    } catch (error) {
           // Continue to next query
         }
       }
@@ -454,6 +454,7 @@ Focus on the most important information with clear formatting. Start immediately
   }
   
   classifyPageType(url, content) {
+    // This is for summarization templates only - quick URL-based detection
     const urlLower = url.toLowerCase();
     
     // YouTube detection
@@ -461,7 +462,7 @@ Focus on the most important information with clear formatting. Start immediately
       return 'youtube';
     }
     
-    // News detection
+    // News detection (for templates)
     if (urlLower.includes('/news/') || urlLower.includes('bbc.com') || 
         urlLower.includes('cnn.com') || urlLower.includes('reuters.com')) {
       return 'news';
@@ -475,6 +476,102 @@ Focus on the most important information with clear formatting. Start immediately
     
     // Default
     return 'generic';
+  }
+
+  /**
+   * AI-based content categorization - analyzes actual content, not just URL
+   * Categories: news, blog, reference (wikipedia/docs), youtube (already detected), generic
+   */
+  async classifyPageCategory(url, content, summary, title) {
+    const urlLower = url.toLowerCase();
+    
+    // YouTube is always YouTube based on URL
+    if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
+      return { category: 'youtube', confidence: 1.0, method: 'url' };
+    }
+    
+    // Wikipedia and documentation sites - check URL first
+    if (urlLower.includes('wikipedia.org') || urlLower.includes('wiki')) {
+      return { category: 'reference', confidence: 0.95, method: 'url' };
+    }
+    
+    // If we have summary and content, use AI to analyze the actual content
+    const contentToAnalyze = summary || content?.substring(0, 1500) || title;
+    if (!contentToAnalyze || contentToAnalyze.length < 50) {
+      // Not enough content - use URL-based fallback
+      return this.getUrlBasedCategory(url);
+    }
+    
+    try {
+      const prompt = `Analyze this web page content and categorize it into ONE of these categories based on the ACTUAL CONTENT (not the website domain):
+
+URL: ${url}
+Title: ${title || 'N/A'}
+Content preview: ${contentToAnalyze}
+
+Categories:
+- **news**: Current events, breaking news, reports, journalism, factual reporting about recent events
+- **blog**: Personal opinion, editorial, how-to guide, tutorial, personal thoughts, commentary
+- **reference**: Encyclopedia article, documentation, technical reference, educational content, factual information
+- **generic**: Everything else (social media, forums, e-commerce, etc.)
+
+Important rules:
+1. If it's on a news site (like bbc.com) but the content is a recipe, cooking blog, lifestyle article, or entertainment piece - categorize as "blog", NOT "news"
+2. News must be about current events, factual reporting, journalism - not opinion pieces
+3. Reference includes Wikipedia articles, technical docs, educational content
+4. Blog includes opinion pieces, tutorials, personal experiences, guides
+
+Respond with ONLY the category name: news, blog, reference, or generic
+
+Category:`;
+      
+      const result = await this.answerQuestionWithFallback(prompt);
+      if (result.success && result.answer) {
+        const category = result.answer.trim().toLowerCase();
+        // Validate category
+        const validCategories = ['news', 'blog', 'reference', 'youtube', 'generic'];
+        const matchedCategory = validCategories.find(cat => category.includes(cat) || cat.includes(category));
+        
+        if (matchedCategory && matchedCategory !== 'youtube') { // YouTube already handled by URL
+          console.log(`[AIProviderManager] ✅ AI categorized as: ${matchedCategory} (from: ${category})`);
+      return {
+            category: matchedCategory, 
+            confidence: 0.85, 
+            method: 'ai',
+            reasoning: `Content analysis determined this is ${matchedCategory} content`
+          };
+        }
+      }
+    } catch (error) {
+      console.log('[AIProviderManager] AI categorization failed:', error.message);
+    }
+    
+    // Fallback to URL-based
+    return this.getUrlBasedCategory(url);
+  }
+
+  getUrlBasedCategory(url) {
+    const urlLower = url.toLowerCase();
+    
+    // More specific URL patterns
+    if (urlLower.includes('wikipedia.org') || urlLower.includes('/wiki/')) {
+      return { category: 'reference', confidence: 0.9, method: 'url' };
+    }
+    
+    if (urlLower.includes('/blog/') || urlLower.includes('/article/') || 
+        urlLower.includes('.medium.com') || urlLower.includes('.wordpress.com') ||
+        urlLower.includes('substack.com') || urlLower.includes('ghost.org')) {
+      return { category: 'blog', confidence: 0.7, method: 'url' };
+    }
+    
+    // News sites - but confidence is lower since content might not be news
+    if (urlLower.includes('bbc.com') || urlLower.includes('cnn.com') || 
+        urlLower.includes('reuters.com') || urlLower.includes('theguardian.com') ||
+        urlLower.includes('nytimes.com') || urlLower.includes('/news/')) {
+      return { category: 'news', confidence: 0.6, method: 'url', note: 'Content-based categorization recommended' };
+    }
+    
+    return { category: 'generic', confidence: 0.5, method: 'url' };
   }
 
   async summarize(providerName, content, apiKey, url) {
@@ -526,7 +623,7 @@ Focus on the most important information with clear formatting. Start immediately
           }
           
           console.log(`[AIProviderManager] ❌ Model ${model} failed: ${response.status}`);
-        } catch (error) {
+    } catch (error) {
           console.log(`[AIProviderManager] ❌ Model ${model} error: ${error.message}`);
           continue;
         }
@@ -718,7 +815,7 @@ Focus on the most important information with clear formatting. Start immediately
           }
           
           console.log(`[AIProviderManager] ❌ Model ${model} failed: ${response.status}`);
-        } catch (error) {
+    } catch (error) {
           console.log(`[AIProviderManager] ❌ Model ${model} error: ${error.message}`);
           continue;
         }
@@ -876,8 +973,8 @@ function extractPageContent() {
       .slice(0, 5)
       .map(img => img.src)
       .filter(src => src && !src.startsWith('data:'));
-    
-    return {
+        
+        return {
       title: title,
       content: mainContent.substring(0, 5000), // Limit content size
       summary: metaDescription || mainContent.substring(0, 200),
@@ -887,7 +984,7 @@ function extractPageContent() {
     };
     } catch (error) {
     console.error('Error extracting content:', error);
-    return {
+      return {
       title: document.title,
       content: '',
       summary: 'Failed to extract content',
@@ -1121,6 +1218,28 @@ class TabSenseServiceWorker {
           console.log('[TabSense] Skipping adaptive summary - insufficient content');
         }
         
+        // AI-based content categorization after summary is generated
+        let finalCategory = 'generic';
+        let categoryConfidence = 0.5;
+        try {
+          console.log('[TabSense] Analyzing content for smart categorization...');
+          const categoryResult = await this.aiProviderManager.classifyPageCategory(
+            tab.url,
+            extractedData.content,
+            summary,
+            extractedData.title || tab.title
+          );
+          finalCategory = categoryResult.category || 'generic';
+          categoryConfidence = categoryResult.confidence || 0.5;
+          console.log(`[TabSense] ✅ Content categorized as: ${finalCategory} (confidence: ${categoryConfidence}, method: ${categoryResult.method})`);
+        } catch (categoryError) {
+          console.log('[TabSense] Category analysis failed, using fallback:', categoryError.message);
+          // Use URL-based fallback
+          const urlBased = this.aiProviderManager.getUrlBasedCategory(tab.url);
+          finalCategory = urlBased.category;
+          categoryConfidence = urlBased.confidence;
+        }
+        
         // Store tab data - use URL as id for uniqueness
         const tabData = {
           id: `${tab.url}-${Date.now()}`,
@@ -1129,7 +1248,8 @@ class TabSenseServiceWorker {
           url: tab.url,
           content: extractedData.content || `Content from ${tab.title || tab.url}`,
           summary: summary,
-          category: extractedData.category || 'generic',
+          category: finalCategory,
+          categoryConfidence: categoryConfidence,
           processed: true,
           timestamp: Date.now()
         };
@@ -1144,8 +1264,8 @@ class TabSenseServiceWorker {
         
         // Find existing tab with same URL
         const existingIndex = existingTabs.findIndex(t => t.url === tab.url);
-        
-        if (existingIndex >= 0) {
+      
+      if (existingIndex >= 0) {
           const existingTab = existingTabs[existingIndex];
           const isSameTitle = existingTab.title === tabData.title;
           const wasProcessedRecently = existingTab.timestamp && existingTab.timestamp > fiveMinutesAgo;
@@ -1159,7 +1279,7 @@ class TabSenseServiceWorker {
           // Update existing tab if different title or stale
           console.log('[TabSense] Updating existing tab (different title or stale):', tab.url);
           existingTabs[existingIndex] = tabData;
-        } else {
+      } else {
           // Add new tab
           console.log('[TabSense] Adding new tab:', tab.url);
           existingTabs.push(tabData);
@@ -1187,7 +1307,7 @@ class TabSenseServiceWorker {
       chrome.runtime.sendMessage(message).catch(() => {
         // Ignore errors if no listeners
       });
-      } catch (error) {
+    } catch (error) {
       console.log('[TabSense] No listeners for broadcast message:', error.message);
     }
   }
@@ -1310,9 +1430,24 @@ class TabSenseServiceWorker {
         // Update existing conversation with new messages and title (if provided)
         // Preserve existing metadata (tabId, tabUrl, tabTitle, tabSummary, tabCategory)
         conversations[conversationIndex].messages = messages;
-        if (title && title !== conversations[conversationIndex].title) {
+        
+        // Only update title if:
+        // 1. A title is provided
+        // 2. It's different from the existing one
+        // 3. It's NOT a fallback/placeholder title (to prevent overwriting good titles with bad ones)
+        const isFallbackTitle = title && (
+          title.trim() === 'Conversation' ||
+          title.trim().startsWith(' Key Points:') ||
+          title.trim().startsWith('Key Points:') ||
+          title.trim().length < 5 ||
+          /^[📰📌💭🎥🎯]\s*$/.test(title.trim()) // Just an emoji
+        );
+        
+        if (title && title !== conversations[conversationIndex].title && !isFallbackTitle) {
           console.log('[TabSense] Updating conversation title from:', conversations[conversationIndex].title, 'to:', title);
           conversations[conversationIndex].title = title;
+        } else if (isFallbackTitle) {
+          console.log('[TabSense] Skipping title update - provided title is a fallback/placeholder:', title);
         }
         if (suggestedQuestions && Array.isArray(suggestedQuestions) && suggestedQuestions.length > 0) {
           conversations[conversationIndex].suggestedQuestions = suggestedQuestions;
@@ -1390,7 +1525,7 @@ class TabSenseServiceWorker {
       console.log('[TabSense] Collection data:', collection);
       // Return with 'tabs' key that sidebar expects
       return { success: true, data: { tabs: collection } };
-    } catch (error) {
+      } catch (error) {
       console.error('[TabSense] Error getting collection:', error);
       return { success: false, error: error.message };
     }
@@ -1451,7 +1586,7 @@ class TabSenseServiceWorker {
     try {
       await chrome.storage.local.clear();
       return { success: true };
-    } catch (error) {
+        } catch (error) {
       console.error('[TabSense] Error clearing data:', error);
       return { success: false, error: error.message };
     }
@@ -1463,8 +1598,8 @@ class TabSenseServiceWorker {
       const allData = await chrome.storage.local.get();
       const dataSize = JSON.stringify(allData).length;
 
-          return {
-            success: true,
+      return {
+        success: true,
         data: {
           stats: {
             summaries: allData.multi_tab_collection?.length || 0,
@@ -1722,7 +1857,7 @@ EXAMPLES OF GOOD SOURCE ATTRIBUTION:
 - "While the document states Y, recent news from [Source] reports Z instead."
 - "According to the document, A is true. External sources from Wikipedia confirm this."
 - "The document mentions B, but external verification from [Source] suggests otherwise - sources differ on this point."`;
-          } else {
+      } else {
             conflictResolutionInstructions = `CONTEXT USAGE:
 - Use external sources to SUPPLEMENT the document context
 - If external information contradicts the document, prioritize external sources if they're credible (Wikipedia, reputable news)
@@ -2277,7 +2412,7 @@ Answer:`;
         
         if (response && response.success) {
           return {
-            success: true,
+        success: true,
             data: response.data
           };
         }
@@ -2324,7 +2459,7 @@ Answer:`;
       
       // Fallback: return basic page data
       return {
-        success: true,
+          success: true,
         data: {
           title: pageData?.title || 'No title',
           summary: pageData?.summary || 'No summary available',
@@ -2420,7 +2555,7 @@ Answer:`;
       }
       
       return { success: true, data: { tabId, url: tab.url, title: tab.title } };
-    } catch (error) {
+        } catch (error) {
       console.error('[TabSense] Error processing tab:', error);
       return { success: false, error: error.message };
     }
@@ -2676,12 +2811,18 @@ Answer:`;
         // Fallback: Extract first non-empty sentence/line
         const lines = content.split('\n').filter(l => l.trim().length > 10);
         for (const line of lines) {
-          // Skip lines that are just section headers
-          if (/^[📰📌💭🎥🎯✨💡🔑👤💬📖]?\s*\*\*[^*]+\*\*[:\s]*$/.test(line.trim())) {
+          // Skip lines that are just section headers (like "**Key Points:**" or "📰 **Overview:**")
+          const isSectionHeader = /^[📰📌💭🎥🎯✨💡🔑👤💬📖]?\s*\*\*[^*]+\*\*[:\s]*$/.test(line.trim()) ||
+            /^\*\*(Key Points|Overview|Main Topic|Main Argument|Context|Details|Summary|Introduction)[:\s]*\*\*?$/.test(line.trim());
+          if (isSectionHeader) {
             continue;
           }
           // Get first meaningful content line
           let title = line.replace(/\*\*/g, '').replace(/^[📰📌💭🎥🎯✨💡🔑👤💬📖]\s*/g, '').replace(/^[•\-\*]\s*/, '').trim();
+          // Skip if it looks like a section header without markdown
+          if (/^(Key Points|Overview|Main Topic|Main Argument|Context|Details|Summary|Introduction):?\s*$/.test(title)) {
+            continue;
+          }
           if (title.length > 10 && title.length < 100) {
             if (title.length > 60) title = title.substring(0, 57).trim() + '...';
             console.log('[TabSense] ✅ Extracted title from first content line:', title);
