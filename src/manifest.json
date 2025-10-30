@@ -39,7 +39,7 @@
     }
   ],
   
-  "web_accessible_resources": [
+      "web_accessible_resources": [
         {
           "resources": ["assets/images/*", "src/ui/test/test-ai.html", "offscreen.html", "offscreen.js"],
           "matches": ["<all_urls>"]

@@ -443,7 +443,7 @@ const TabSenseSidebar: React.FC = () => {
             tab.url === newTab.url && tab.title === newTab.title
           );
           if (!isDuplicate) {
-            return [newTab, ...prevTabs];
+          return [newTab, ...prevTabs];
           }
           return prevTabs;
         });
@@ -929,7 +929,7 @@ const TabSenseSidebar: React.FC = () => {
           // Fallback
           const fallbackTitle = `Main Q&A: ${mainQuestion.substring(0, 30)}...`;
           saveConversationToArchive(fallbackTitle, finalMessages);
-        }
+      }
       }
       } else {
         throw new Error(response.error || 'Failed to get AI response');
@@ -941,7 +941,7 @@ const TabSenseSidebar: React.FC = () => {
         stageTimers.forEach(timer => clearTimeout(timer));
       }
       setLoadingStage('');
-      
+
       const errorMessage = "Sorry, I couldn't process your question right now. Please try again.";
       const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const finalMessages = [...updatedMessages, { 
@@ -1476,7 +1476,7 @@ const TabSenseSidebar: React.FC = () => {
                       if (conversation.suggestedQuestions && conversation.suggestedQuestions.length > 0) {
                         setSummarySuggestedQuestions(conversation.suggestedQuestions);
                         console.log('[TabSense] Using stored suggested questions for loaded conversation');
-                      } else {
+              } else {
                         // Generate suggested questions only if not stored
                         try {
                           const questionsResponse = await sendMessageToServiceWorker({

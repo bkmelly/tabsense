@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2, ExternalLink, X, RotateCcw } from 'lucide-react';
+import { Loader2, ExternalLink, RotateCcw } from 'lucide-react';
 
 interface Message {
   role: "user" | "assistant";
@@ -19,7 +19,8 @@ interface TextAreaProps {
 }
 
 const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping, onRetry, loadingStage }) => {
-  const [showSourcesModal, setShowSourcesModal] = useState(false);
+  // Modal removed; use inline collapsible sources instead
+  const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
   const [hoveredCitation, setHoveredCitation] = useState<string | null>(null);
 
   // Parse markdown and inline citations
@@ -115,6 +116,11 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
 
   // Parse markdown (bold, bullet points, emojis, line breaks)
   const parseMarkdown = (text: string, keyOffset: number = 0): React.ReactNode => {
+    // Sanitize unicode: normalize and drop replacement chars
+    try {
+      if ((text as any).normalize) text = (text as any).normalize('NFC');
+    } catch {}
+    text = text.replace(/[\uFFFD]/g, '');
     // Split by lines first to handle bullet points and headers
     const lines = text.split('\n');
     const lineElements: React.ReactNode[] = [];
@@ -161,6 +167,10 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
       if (bulletMatch) {
         // It's a bullet point with marker
         const bulletContent = bulletMatch[2];
+        if (!bulletContent || bulletContent.trim().length < 2) {
+          // Skip empty/placeholder bullets
+          return;
+        }
         lineElements.push(
           <div key={`bullet-${keyCounter + lineIdx}`} className="flex items-start gap-2 my-1">
             <span className="text-muted-foreground mt-0.5 flex-shrink-0">•</span>
@@ -223,6 +233,10 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
         // Blank line - add spacing
         lineElements.push(<br key={`blank-${keyCounter + lineIdx}`} />);
       } else {
+        if (trimmedLine === 'Document') {
+          // Skip stray standalone source label lines
+          return;
+        }
         // Regular line with inline markdown
         lineElements.push(
           <div key={`line-${keyCounter + lineIdx}`} className="my-1">
@@ -309,6 +323,43 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
                 <div className="prose prose-sm max-w-none">
                   {isAssistant ? parseContent(msg.content, msg.sources) : msg.content}
                 </div>
+                {isAssistant && msg.sources && msg.sources.length > 0 && (
+                  <div className="mt-3">
+                    <button
+                      onClick={() => {
+                        const next = new Set(expandedSources);
+                        if (next.has(idx)) next.delete(idx); else next.add(idx);
+                        setExpandedSources(next);
+                      }}
+                      className="text-xs text-primary hover:underline flex items-center gap-1 mb-2"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      {expandedSources.has(idx) ? 'Hide sources' : `Sources (${msg.sources.length})`}
+                    </button>
+                    {expandedSources.has(idx) && (
+                      <div className="flex flex-wrap gap-2">
+                        {msg.sources.map((src, sIdx) => {
+                      let name = src.title || '';
+                      try { if (!name) name = new URL(src.url).hostname.replace('www.', ''); } catch {}
+                      if (name.length > 50) name = name.substring(0, 47) + '...';
+                      return (
+                        <a
+                              key={`srcchip-${sIdx}`}
+                          href={src.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-medium text-primary hover:text-primary-700 px-2.5 py-1 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors inline-flex items-center gap-1 border border-primary/20"
+                          title={src.url}
+                        >
+                          {name}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="absolute top-2 right-2 flex items-center gap-2">
                   {msg.timestamp && (
                     <div className={`text-xs opacity-60 ${msg.role === "user" ? "text-white/70" : "text-muted-foreground"}`}>
@@ -325,15 +376,6 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
                     </button>
                   )}
                     </div>
-                {isAssistant && !msg.error && allSources.length > 0 && idx === messages.length - 1 && (
-                  <button
-                    onClick={() => setShowSourcesModal(true)}
-                    className="mt-3 text-xs text-primary hover:underline flex items-center gap-1"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    Show all sources ({allSources.length})
-                  </button>
-              )}
             </div>
           );
         })}
@@ -353,55 +395,6 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
         )}
       </div>
     </div>
-
-      {/* Sources Modal */}
-      {showSourcesModal && allSources.length > 0 && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowSourcesModal(false)}
-        >
-          <div 
-            className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold">Sources</h3>
-              <button
-                onClick={() => setShowSourcesModal(false)}
-                className="p-1 hover:bg-muted rounded transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="overflow-y-auto p-4 flex-1">
-              <div className="space-y-2">
-                {allSources.map((source, idx) => (
-                  <a
-                    key={idx}
-                    href={source.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1">
-                        <div className="font-medium text-sm">{source.title}</div>
-                        <div className="text-xs text-muted-foreground mt-1 truncate">{source.url}</div>
-                        {source.type && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-muted mt-1 inline-block">
-                            {source.type}
-                          </span>
-                        )}
-                      </div>
-                      <ExternalLink className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };

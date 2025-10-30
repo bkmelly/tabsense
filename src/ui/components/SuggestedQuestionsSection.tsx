@@ -68,7 +68,7 @@ const SuggestedQuestionsSection: React.FC<SuggestedQuestionsSectionProps> = ({
             {isRegenerating ? (
               <Loader2 className="w-3 h-3 animate-spin" />
             ) : (
-              <Shuffle className="w-3 h-3" />
+            <Shuffle className="w-3 h-3" />
             )}
           </button>
           <button

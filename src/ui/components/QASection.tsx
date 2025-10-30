@@ -68,32 +68,46 @@ const QASection: React.FC<QASectionProps> = ({
   const fallbackQuestions: Array<{ text: string; icon: any }> = [];
 
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [lastAskAt, setLastAskAt] = useState<number>(0);
+
+  const canSend = () => {
+    const now = Date.now();
+    const debounceOk = now - lastAskAt > 1500; // 1.5s debounce
+    const swReady = (serviceWorkerStatus || 'connected') === 'connected';
+    return debounceOk && swReady && !isTyping && question.trim().length > 0;
+  };
+
+  const handleAskClick = () => {
+    if (!canSend()) return;
+    setLastAskAt(Date.now());
+    onAskQuestion();
+  };
 
   const handleShuffle = () => {
     // Only shuffle if we have questions
     if (suggestedQuestions.length > 0) {
-      const shuffled = [...suggestedQuestions].sort(() => Math.random() - 0.5);
-      console.log('Shuffled questions:', shuffled);
+    const shuffled = [...suggestedQuestions].sort(() => Math.random() - 0.5);
+    console.log('Shuffled questions:', shuffled);
     }
   };
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       <div className="p-4 pb-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-            <Sparkles className="w-3 h-3 text-primary" />
+          <div className="flex items-center justify-between">
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+              <Sparkles className="w-3 h-3 text-primary" />
             {conversationTitle || (messages.length > 0 && messages[0].role === "assistant" && messages[0].content.includes("**") ? "Conversation" : "Ask Questions")}
-          </h2>
+        </h2>
           {onClose && (
             <button
               onClick={onClose}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               <ChevronDown className="w-3 h-3 transition-transform duration-200 rotate-180" />
-            </button>
+                </button>
           )}
-        </div>
+              </div>
             </div>
             
       <div className="flex-1 flex flex-col px-3 relative overflow-hidden">
@@ -101,13 +115,13 @@ const QASection: React.FC<QASectionProps> = ({
           <>
             {/* Scrollable Text Area - Full height with padding at bottom */}
             <div className="flex-1 overflow-hidden mb-20 pb-4">
-              <TextArea 
-                messages={messages} 
-                showSuggestions={showSuggestions} 
-                isTyping={isTyping}
+            <TextArea 
+              messages={messages} 
+              showSuggestions={showSuggestions} 
+              isTyping={isTyping} 
                 onRetry={handleRetry}
                 loadingStage={loadingStage}
-              />
+            />
             </div>
 
             {/* Suggested Questions Section - Floating between text and input */}
@@ -132,29 +146,34 @@ const QASection: React.FC<QASectionProps> = ({
             {/* Input Section - Fixed at bottom in white container */}
             <div className="absolute bottom-0 left-0 right-0 z-20 px-3 pb-2">
               <div className="bg-white rounded-lg shadow-sm border border-border/20 p-3">
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      placeholder="Ask about this summary..."
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      onKeyPress={(e) => e.key === "Enter" && !isTyping && onAskQuestion()}
-                      disabled={isTyping}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Input
+                    placeholder="Ask about this summary..."
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleAskClick()}
+                disabled={isTyping || (serviceWorkerStatus === 'connecting') || (serviceWorkerStatus === 'error')}
                       className="w-full pr-20 bg-white hover:bg-gray-50 border-border/20 focus:border-primary/50 transition-all shadow-sm"
-                    />
-                    <button
-                      onClick={onAskQuestion}
-                      disabled={!question.trim() || isTyping}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 rounded-md hover:bg-muted/70 transition-colors disabled:opacity-50"
-                    >
-                      {isTyping ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      ) : (
-                        <Send className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </button>
-                  </div>
-                  <div className="flex gap-1">
+              />
+              <button
+                onClick={handleAskClick}
+                disabled={!canSend()}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 rounded-md hover:bg-muted/70 transition-colors disabled:opacity-50"
+              >
+                {isTyping ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : (
+                      <Send className="h-4 w-4 text-muted-foreground" />
+                )}
+              </button>
+              {serviceWorkerStatus !== 'connected' && (
+                <div className="absolute -bottom-5 left-0 text-[10px] text-muted-foreground/70">
+                  Waiting for AI to be ready...
+                </div>
+              )}
+            </div>
+                <div className="flex gap-1">
                     {!showSuggestions && (
                       <Button 
                         size="icon"
@@ -166,25 +185,25 @@ const QASection: React.FC<QASectionProps> = ({
                         <Eye className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button 
-                      size="icon"
-                      variant="ghost"
-                      className="h-10 w-10 hover:bg-muted/50"
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setIsMenuOpen(!isMenuOpen)}
-                      className="h-10 w-10 hover:bg-muted/50"
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
+                  <Button 
+                    size="icon"
+                    variant="ghost"
+                    className="h-10 w-10 hover:bg-muted/50"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  <Button 
+                    size="icon"
+                    variant="ghost"
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                    className="h-10 w-10 hover:bg-muted/50"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
                   </div>
                 </div>
-              </div>
-            </div>
+                      </div>
+                    </div>
                   </>
                 )}
       </div>

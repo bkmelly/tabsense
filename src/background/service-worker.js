@@ -1000,6 +1000,10 @@ class TabSenseServiceWorker {
     this.webSearchService = new WebSearchService();
     this.initialized = false;
     this.messageHandlers = new Map();
+    this.processingTabs = new Set(); // Prevent duplicate concurrent processing per tabId
+    this.youtubeProcessTimers = new Map(); // Debounce timers per tabId for YouTube navigations
+    this.lastYouTubeProcessed = new Map(); // tabId -> { videoId, ts }
+    this.qaSearchCache = new Map(); // QA external search cache
     this.setupMessageHandlers();
   }
 
@@ -1124,20 +1128,29 @@ class TabSenseServiceWorker {
       chrome.sidePanel.open({ tabId: tab.id });
     });
 
-    // Listen for tab updates to auto-process tabs
+    // Listen for tab updates to auto-process tabs, with YouTube-specific debounce
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      // Only process when tab is complete and has a valid URL
-      if (changeInfo.status === 'complete' && tab.url && 
-          !tab.url.startsWith('chrome://') && 
-          !tab.url.startsWith('chrome-extension://') &&
-          !tab.url.startsWith('edge://') &&
-          !tab.url.startsWith('about:')) {
-        console.log('[TabSense] Tab loaded, checking if should auto-process:', tab.url);
-        
-        // Auto-process after a short delay to ensure page is ready
-        setTimeout(() => {
+      const url = tab?.url || '';
+      if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:')) {
+        return;
+      }
+      const isYouTube = /(?:youtube\.com|youtu\.be)/i.test(url);
+      if (isYouTube) {
+        // Debounce rapid updates in the same YouTube tab when navigating between videos
+        const existingTimer = this.youtubeProcessTimers.get(tabId);
+        if (existingTimer) clearTimeout(existingTimer);
+        const timeout = setTimeout(() => {
+          this.youtubeProcessTimers.delete(tabId);
+          console.log('[TabSense] YouTube debounced process for tab:', tabId, url);
           this.autoProcessTab(tab);
-        }, 1000);
+        }, 1200);
+        this.youtubeProcessTimers.set(tabId, timeout);
+        return; // Avoid also triggering the generic path
+      }
+
+      if (changeInfo.status === 'complete') {
+        console.log('[TabSense] Tab loaded, checking if should auto-process:', url);
+        setTimeout(() => this.autoProcessTab(tab), 1000);
       }
     });
 
@@ -1154,6 +1167,11 @@ class TabSenseServiceWorker {
   async autoProcessTab(tab) {
     try {
       console.log('[TabSense] Auto-processing tab:', tab.url);
+      if (this.processingTabs.has(tab.id)) {
+        console.log('[TabSense] Skipping - tab already processing:', tab.id);
+        return;
+      }
+      this.processingTabs.add(tab.id);
       
       // Filter out unwanted pages
       const url = tab.url || '';
@@ -1175,6 +1193,7 @@ class TabSenseServiceWorker {
       // YouTube: handle via API first (with caching), fallback to basic
       const isYouTube = /(?:youtube\.com|youtu\.be)/i.test(url);
       if (isYouTube) {
+        console.log('[TabSense] YouTube detected. Routing to YouTube processor:', url);
         try {
           const ytResult = await this.processYouTubeTab(tab);
           if (ytResult) {
@@ -1328,10 +1347,47 @@ class TabSenseServiceWorker {
   }
 
   // ==================== YouTube Helpers ====================
+  normalizeYouTubeUrl(rawUrl) {
+    try {
+      const u = new URL(rawUrl);
+      // Force standard watch URL with only the v param
+      // Handle youtu.be short links
+      if (u.hostname === 'youtu.be') {
+        const vid = u.pathname.replace(/^\//, '');
+        if (vid) {
+          return `https://www.youtube.com/watch?v=${vid}`;
+        }
+      }
+      // For youtube.com/*, keep only v
+      if (u.hostname.includes('youtube.com')) {
+        // If it's an embed URL, convert to watch
+        if (u.pathname.startsWith('/embed/')) {
+          const vid = u.pathname.split('/embed/')[1]?.split('/')[0];
+          if (vid) return `https://www.youtube.com/watch?v=${vid}`;
+        }
+        const v = u.searchParams.get('v');
+        if (v) {
+          return `https://www.youtube.com/watch?v=${v}`;
+        }
+      }
+      // Fallback to raw URL without hash/query noise
+      u.hash = '';
+      return u.toString();
+    } catch {
+      return rawUrl;
+    }
+  }
   async getYouTubeAPIKey() {
     try {
-      const result = await chrome.storage.local.get(['tabsense_api_keys']);
-      return result.tabsense_api_keys?.youtube || '';
+      const result = await chrome.storage.local.get(['tabsense_api_keys', 'other_api_keys', 'ai_api_keys', 'youtube_api_key']);
+      const fromTabsense = result.tabsense_api_keys?.youtube || '';
+      const fromOther = result.other_api_keys?.youtube || '';
+      const fromAi = result.ai_api_keys?.youtube || '';
+      const fromLegacy = result.youtube_api_key || '';
+      const key = fromTabsense || fromOther || fromAi || fromLegacy || '';
+      const source = fromTabsense ? 'tabsense_api_keys.youtube' : fromOther ? 'other_api_keys.youtube' : fromAi ? 'ai_api_keys.youtube' : fromLegacy ? 'youtube_api_key' : 'none';
+      console.log('[YouTube] API key present:', Boolean(key), 'source:', source);
+      return key;
     } catch (e) {
       return '';
     }
@@ -1363,6 +1419,7 @@ class TabSenseServiceWorker {
 
   async fetchYouTubeAPI(videoId, apiKey, { commentsLimit = 150 } = {}) {
     const base = 'https://www.googleapis.com/youtube/v3';
+    console.log('[YouTube] Starting API fetch for video:', videoId, 'commentsLimit:', commentsLimit);
     // Video details
     const videoUrl = `${base}/videos?part=snippet,statistics,contentDetails&id=${videoId}&key=${apiKey}`;
     const videoResp = await fetch(videoUrl);
@@ -1370,6 +1427,12 @@ class TabSenseServiceWorker {
     const videoJson = await videoResp.json();
     const video = videoJson.items?.[0];
     if (!video) throw new Error('YouTube video not found');
+    console.log('[YouTube] Video details fetched:', {
+      title: video?.snippet?.title,
+      channelId: video?.snippet?.channelId,
+      views: video?.statistics?.viewCount,
+      comments: video?.statistics?.commentCount
+    });
 
     // Channel info
     const channelId = video.snippet.channelId;
@@ -1382,6 +1445,12 @@ class TabSenseServiceWorker {
         channel = chJson.items?.[0] || null;
       }
     } catch {}
+    if (channel) {
+      console.log('[YouTube] Channel info fetched:', {
+        title: channel?.snippet?.title,
+        subscribers: channel?.statistics?.subscriberCount
+      });
+    }
 
     // Comments (paginate until limit or no nextPage)
     const comments = [];
@@ -1407,8 +1476,14 @@ class TabSenseServiceWorker {
         });
       });
       pageToken = cmJson.nextPageToken || '';
+      console.log('[YouTube] Comments page fetched:', {
+        fetched: cmJson.items?.length || 0,
+        totalAccumulated: comments.length,
+        hasNext: Boolean(pageToken)
+      });
       if (!pageToken) break;
     }
+    console.log('[YouTube] Finished fetching comments. Total:', comments.length);
 
     return {
       video: {
@@ -1437,36 +1512,168 @@ class TabSenseServiceWorker {
     };
   }
 
+  // Simple sentiment analysis for comment text using keyword heuristics
+  analyzeYouTubeComments(comments) {
+    if (!Array.isArray(comments) || comments.length === 0) {
+      return {
+        total: 0,
+        counts: { positive: 0, negative: 0, neutral: 0 },
+        percentages: { positive: 0, negative: 0, neutral: 0 },
+        representatives: { positive: [], negative: [], neutral: [] }
+      };
+    }
+    const positiveWords = new Set([
+      'great','good','amazing','excellent','love','loved','like','liked','awesome','fantastic','brilliant','hilarious','funny','well done','nice','smart','clever','insightful','agree','agreeing','accurate','right','true','genius','support','win','best','lol','lmao'
+    ]);
+    const negativeWords = new Set([
+      'bad','terrible','awful','hate','hated','dislike','disliked','stupid','idiot','dumb','worst','nonsense','false','wrong','lie','lying','trash','cringe','cringy','angry','disgusting','corrupt','shame','pathetic'
+    ]);
+    const classify = (text) => {
+      const t = (text || '').toLowerCase();
+      let pos = 0, neg = 0;
+      for (const w of positiveWords) { if (t.includes(w)) pos++; }
+      for (const w of negativeWords) { if (t.includes(w)) neg++; }
+      const score = pos - neg;
+      if (score > 1) return { label: 'positive', score };
+      if (score < -1) return { label: 'negative', score };
+      return { label: 'neutral', score };
+    };
+    const buckets = { positive: [], negative: [], neutral: [] };
+    comments.forEach(c => {
+      const { label, score } = classify(c.text || '');
+      buckets[label].push({ ...c, _score: score });
+    });
+    const total = comments.length;
+    const counts = {
+      positive: buckets.positive.length,
+      negative: buckets.negative.length,
+      neutral: buckets.neutral.length
+    };
+    const toPct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+    const percentages = {
+      positive: toPct(counts.positive),
+      negative: toPct(counts.negative),
+      neutral: toPct(counts.neutral)
+    };
+    // Representatives: pick top liked per bucket
+    const byLikes = arr => arr.sort((a,b) => (b.likeCount||0) - (a.likeCount||0));
+    const representatives = {
+      positive: byLikes(buckets.positive).slice(0, 3).map(c => ({ author: c.author, text: c.text, likeCount: c.likeCount })),
+      negative: byLikes(buckets.negative).slice(0, 3).map(c => ({ author: c.author, text: c.text, likeCount: c.likeCount })),
+      neutral: byLikes(buckets.neutral).slice(0, 3).map(c => ({ author: c.author, text: c.text, likeCount: c.likeCount }))
+    };
+    return { total, counts, percentages, representatives };
+  }
+
+  extractYouTubeCommentThemes(comments) {
+    if (!Array.isArray(comments) || comments.length === 0) return [];
+    const stop = new Set([
+      'the','a','an','and','or','but','so','of','to','in','on','for','with','this','that','is','are','was','were','it','as','at','be','by','from','about','we','you','they','i','me','my','our','your','their','he','she','his','her','them','us','not','have','has','had','do','did','does','been','will','would','can','could','should','if','then','than','there','here','just','also','more','most','some','any','very','into','over','under','out','up','down','what','which','who','when','where','why','how','because','however','while','like','get','got','makes','make','made','new','one','two','video','youtube','vox','bbc','daily','show','trump','xi','china','chinese','people'
+    ]);
+    const freq = new Map();
+    const add = (w) => {
+      if (!w || w.length < 3) return;
+      if (stop.has(w)) return;
+      const v = freq.get(w) || 0;
+      freq.set(w, v + 1);
+    };
+    comments.forEach(c => {
+      const text = (c.text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+      text.split(/\s+/).forEach(add);
+    });
+    const top = Array.from(freq.entries()).sort((a,b) => b[1]-a[1]).slice(0, 8).map(([w]) => w);
+    return top;
+  }
+
   buildYouTubeContent(youtubeData, url) {
     const { video, channel, comments } = youtubeData;
     const lines = [];
-    lines.push(`VIDEO TITLE: ${video.title}`);
-    lines.push(`CHANNEL: ${video.channelTitle}${channel && channel.subscriberCount ? ` (${channel.subscriberCount.toLocaleString()} subscribers)` : ''}`);
-    lines.push(`VIEWS: ${video.viewCount.toLocaleString()} | LIKES: ${video.likeCount.toLocaleString()} | COMMENTS: ${video.commentCount.toLocaleString()}`);
-    if (video.publishedAt) lines.push(`PUBLISHED: ${new Date(video.publishedAt).toLocaleDateString()}`);
-    if (video.duration) lines.push(`DURATION: ${video.duration}`);
-    lines.push(`URL: ${url}`);
+    // Adapted template (with emojis) aligned to our identity
+    lines.push(`🎥 **Video Title:** ${video.title}`);
     lines.push('');
-    if (video.description) {
-      lines.push('DESCRIPTION:');
-      lines.push(video.description.substring(0, 4000));
-      lines.push('');
-    }
+    lines.push('🎯 **Overview:**');
+    lines.push('[Write 2-3 concise, conversational sentences. No filler. Focus on what the video covers and why it matters.]');
+    lines.push('');
+    lines.push('✨ **Key Takeaways:**');
+    lines.push('[Provide 4-6 specific, non-redundant bullets. Each 1-2 sentences. Focus on concrete insights, not generic statements.]');
+    lines.push('• ');
+    lines.push('• ');
+    lines.push('• ');
+    lines.push('• ');
+    lines.push('• ');
+    lines.push('• ');
+    lines.push('');
+    lines.push('💬 **Host\'s Viewpoint:**');
+    lines.push('[Capture the host\'s stance/tone in 1-2 sentences (e.g., neutral, critical, supportive) and how it frames the topic.]');
+    lines.push('');
+    lines.push('📊 **Sentiment Breakdown:**');
+    lines.push('');
     if (comments && comments.length > 0) {
-      lines.push('TOP COMMENTS:');
-      comments.slice(0, 150).forEach((c, idx) => {
+      // Sentiment overview block
+      try {
+        const insights = this.analyzeYouTubeComments(comments);
+        // Percentages under Sentiment Breakdown
+        lines.push(`• **Positive (${insights.percentages.positive}%)** – [Brief description of positive themes]`);
+        lines.push(`• **Negative (${insights.percentages.negative}%)** – [Brief description of negative themes]`);
+        lines.push(`• **Neutral/Mixed (${insights.percentages.neutral}%)** – [Brief description of neutral themes]`);
+        lines.push('');
+        lines.push('🧩 **Argument Themes:**');
+        lines.push('[List 3-6 cohesive themes from the comments. For each, write a short explanation and, where helpful, reference a representative idea or quote.]');
+        const themeHints = this.extractYouTubeCommentThemes(comments);
+        if (themeHints.length > 0) {
+          themeHints.slice(0, 6).forEach(h => {
+            const label = h.charAt(0).toUpperCase() + h.slice(1);
+            lines.push(`• **${label}:** [Brief description]`);
+          });
+        }
+        lines.push('');
+        lines.push('🗣️ **Representative Comments:**');
+        lines.push('[Show a few high-signal quotes that illustrate the themes, including usernames and like counts.]');
+        const rep = insights.representatives;
+        const pick = (arr) => arr.slice(0, 2).map(c => {
+          const likeStr = c.likeCount ? ` (${c.likeCount} likes)` : '';
+          const user = c.author || 'user';
+          const text = (c.text || '').replace(/\n+/g, ' ').substring(0, 240);
+          return `• \"${text}\" – @${user}${likeStr}`;
+        });
+        pick(rep.positive).forEach(line => lines.push(line));
+        pick(rep.negative).forEach(line => lines.push(line));
+        if (rep.neutral.length > 0 && (rep.positive.length + rep.negative.length) < 3) {
+          lines.push(pick(rep.neutral)[0]);
+        }
+        lines.push('');
+      } catch {}
+      // Keep a truncated list to ground QA, but shorter to avoid truncation
+      lines.push('TOP COMMENTS (truncated):');
+      comments.slice(0, 40).forEach((c, idx) => {
         const likeStr = c.likeCount ? ` (${c.likeCount} likes)` : '';
-        lines.push(`${idx + 1}. [${c.author}] ${c.text.replace(/\n+/g, ' ').substring(0, 500)}${likeStr}`);
+        lines.push(`${idx + 1}. [${c.author}] ${c.text.replace(/\n+/g, ' ').substring(0, 400)}${likeStr}`);
       });
       lines.push('');
     }
+    // External Context and Insight sections
+    lines.push('🌐 **External Context:**');
+    lines.push('[If external context is available, add 1-2 sentences that clarify background or recent developments relevant to the video.]');
+    lines.push('');
+    lines.push('🧠 **Insight:**');
+    lines.push('[In 2-3 sentences, synthesize what the video says + how the audience reacted. Provide a concrete takeaway or implication. This is the final section.]');
+    lines.push('');
     return lines.join('\n');
   }
 
   async processYouTubeTab(tab) {
-    const url = tab.url;
-    const videoId = this.extractYouTubeVideoId(url);
+    const originalUrl = tab.url;
+    const canonicalUrl = this.normalizeYouTubeUrl(originalUrl);
+    const videoId = this.extractYouTubeVideoId(canonicalUrl);
+    console.log('[YouTube] processYouTubeTab()', { originalUrl, canonicalUrl, videoId });
     if (!videoId) return null;
+
+    // Skip if the same video was processed on this tab very recently
+    const recent = this.lastYouTubeProcessed.get(tab.id);
+    if (recent && recent.videoId === videoId && (Date.now() - recent.ts) < 10000) {
+      console.log('[YouTube] Skipping duplicate processing (recent) for tab:', tab.id, 'video:', videoId);
+      return null;
+    }
 
     const apiKey = await this.getYouTubeAPIKey();
     let youtubeData = null;
@@ -1477,11 +1684,16 @@ class TabSenseServiceWorker {
       const cached = await this.getYouTubeCache(videoId);
       if (cached && (Date.now() - cached.timestamp) < ttlMs) {
         youtubeData = cached.data;
-        console.log('[YouTube] Using cached data for', videoId);
+        console.log('[YouTube] Using cached data for', videoId, 'comments:', youtubeData?.comments?.length || 0);
       } else {
         try {
+          console.log('[YouTube] Cache miss or expired. Fetching fresh data for', videoId);
           youtubeData = await this.fetchYouTubeAPI(videoId, apiKey, { commentsLimit: 150 });
           await this.setYouTubeCache(videoId, youtubeData);
+          console.log('[YouTube] API data fetched and cached:', {
+            title: youtubeData?.video?.title,
+            comments: youtubeData?.comments?.length || 0
+          });
         } catch (e) {
           console.warn('[YouTube] API fetch failed:', e?.message);
         }
@@ -1493,10 +1705,19 @@ class TabSenseServiceWorker {
     let title = tab.title || 'YouTube Video';
 
     if (youtubeData) {
-      content = this.buildYouTubeContent(youtubeData, url);
+      content = this.buildYouTubeContent(youtubeData, canonicalUrl);
+      console.log('[YouTube] Built structured content. Comments included:', youtubeData?.comments?.length || 0);
       try {
-        const aiResult = await this.aiProviderManager.summarizeWithFallback(content, url);
+        const previewLines = content.split('\n').slice(0, 6);
+        console.log('[YouTube] Structured content preview:', previewLines);
+      } catch {}
+      try {
+        const aiResult = await this.aiProviderManager.summarizeWithFallback(
+          content,
+          canonicalUrl
+        );
         summary = aiResult.summary;
+        console.log('[YouTube] Summary generated. length:', summary?.length || 0);
       } catch (e) {
         console.warn('[YouTube] Summarization failed, using description fallback');
         summary = youtubeData.video?.description?.substring(0, 300) || 'YouTube video';
@@ -1504,6 +1725,7 @@ class TabSenseServiceWorker {
       title = youtubeData.video?.title || title;
     } else {
       // Fallback when no API key: basic extraction for title
+      console.warn('[YouTube] No API key or API failed. Using basic extraction for title only.');
       try {
         const results = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
@@ -1511,35 +1733,56 @@ class TabSenseServiceWorker {
         });
         title = results?.[0]?.result || title;
       } catch {}
-      content = `VIDEO TITLE: ${title}\nURL: ${url}`;
+      content = `VIDEO TITLE: ${title}\nURL: ${canonicalUrl}`;
       try {
-        const aiResult = await this.aiProviderManager.summarizeWithFallback(content, url);
+        const aiResult = await this.aiProviderManager.summarizeWithFallback(
+          content,
+          canonicalUrl
+        );
         summary = aiResult.summary;
+        console.log('[YouTube] Summary generated (basic). length:', summary?.length || 0);
       } catch {
         summary = title;
       }
     }
 
+    // Prepare persisted object, but reuse existing ID if we already stored this video before
+    const result = await chrome.storage.local.get(['multi_tab_collection']);
+    const existingTabs = result.multi_tab_collection || [];
+    const existingIndex = existingTabs.findIndex(t => {
+      // Match by canonical URL equality or by videoId extracted from existing record
+      const existingVid = this.extractYouTubeVideoId(t.url || '');
+      return (t.url === canonicalUrl) || (existingVid && existingVid === videoId);
+    });
+
+    const now = Date.now();
+    const stableId = `yt-${videoId}`;
+    const existingId = existingIndex !== -1 ? existingTabs[existingIndex].id : stableId;
     const tabData = {
-      id: `${url}-${Date.now()}`,
+      id: existingId,
       tabId: tab.id,
       title,
-      url,
+      url: canonicalUrl,
       content,
       summary,
       category: 'youtube',
       categoryConfidence: 1.0,
       youtubeData: youtubeData || null,
       processed: true,
-      timestamp: Date.now()
+      timestamp: now
     };
 
-    // Persist into collection
-    const result = await chrome.storage.local.get(['multi_tab_collection']);
-    const existingTabs = result.multi_tab_collection || [];
-    existingTabs.push(tabData);
+    // Persist into collection with de-duplication for same video
+    if (existingIndex !== -1) {
+      existingTabs[existingIndex] = tabData;
+      console.log('[YouTube] Updated existing entry for video:', videoId);
+    } else {
+      existingTabs.push(tabData);
+      console.log('[YouTube] Added new entry for video:', videoId);
+    }
     await chrome.storage.local.set({ multi_tab_collection: existingTabs });
-    console.log('[TabSense] YouTube tab processed and stored:', url);
+    this.lastYouTubeProcessed.set(tab.id, { videoId, ts: Date.now() });
+    console.log('[TabSense] YouTube tab processed and stored:', canonicalUrl);
     return tabData;
   }
 
@@ -1876,6 +2119,143 @@ class TabSenseServiceWorker {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
+  // ==================== QA Formatting Utilities ====================
+  cleanMarkdown(text) {
+    try {
+      if (!text) return text;
+      let out = text;
+  
+      // 🚫 Remove metadata tokens like "Document", "Context", "Claim Source"
+      out = out.replace(/\b(Document|Context|Claim Source)\b\.?/gi, '');
+  
+      // 🔤 Fix broken lines: "word\nword" → "word word"
+      out = out.replace(/(\w)\s*\n\s*(\w)/g, '$1 $2');
+  
+      // 📋 Normalize bullet styles
+      out = out.replace(/•\s*/g, '• ');
+      out = out.replace(/^(?:\s*[-*]\s+)/gm, '• ');
+      out = out.replace(/^\s*\d+\.\s+/gm, '• ');
+  
+      // 📎 Join broken lines inside bullets
+      out = out.replace(/• ([^\n]+)\n(?!•)/g, '• $1 ');
+  
+      // ✨ Clean bullet artifacts (e.g., "• ." or empty bullets)
+      out = out.replace(/•\s*\./g, '•');
+      out = out.replace(/•\s*(?=\n|$)/g, ''); // remove empty bullets
+  
+      // 📏 Reduce excessive newlines
+      out = out.replace(/\n{3,}/g, '\n\n');
+  
+      // 🧾 Trim trailing spaces on lines
+      out = out.replace(/[ \t]+$/gm, '');
+  
+      // 🎨 Convert emoji or bold headers into level-3 markdown headers
+      out = out.replace(/^\s*(?:([^\w\s])\s*)?\*\*([^*]+)\*\*\s*$/gm, '### $1 **$2**');
+  
+      // Add blank lines before and after headings
+      out = out.replace(/([^\n])\n(###\s)/g, '$1\n\n$2');
+      out = out.replace(/(###[^\n]*)\n{1,}/g, '$1\n\n');
+  
+      // 🔗 Fix repeated [text](text) patterns
+      out = out.replace(/\[([^\]]+)\]\(\1\)/g, '$1');
+  
+      // 🌐 Convert bare domains to clickable links
+      out = out.replace(
+        /\b(https?:\/\/)?(www\.)?([a-zA-Z0-9-]+\.[a-z]{2,})(\/\S*)?/g,
+        '[$3](https://$3$4)'
+      );
+  
+      // 🔠 Capitalize section headers
+      out = out.replace(/### (overview|insight|external context|sentiment|comment themes)/gi, (m) =>
+        m.replace(/\b\w/g, (c) => c.toUpperCase())
+      );
+  
+      // 🔁 Deduplicate inline citations {Name}{Name} → {Name}
+      out = out.replace(/(\{[^}]+\})(\s*\1)+/g, '$1');
+  
+      // 🧩 Remove empty citations {}
+      out = out.replace(/\{\s*\}/g, '');
+  
+      // 🧹 Normalize spaces, punctuation, and non-breaking spaces
+      out = out.replace(/\u00A0/g, ' ');
+      out = out.replace(/ {2,}/g, ' ');
+      out = out.replace(/\s*([.,!?])\s*/g, '$1 ');
+  
+      // ✂️ Clean any leftover bracketed fragments like "( )"
+      out = out.replace(/\(\s*\)/g, '');
+  
+      // ✅ Final tidy trim
+      return out.trim();
+    } catch {
+      return text;
+    }
+  }
+
+  polishMarkdown(text) {
+    try {
+      if (!text) return text;
+      let out = text;
+      // Unicode normalization to NFC
+      if (typeof out.normalize === 'function') out = out.normalize('NFC');
+      // Replace invalid replacement chars
+      out = out.replace(/[\uFFFD]/g, '');
+      // Map common mojibake to intended emojis
+      const emojiMap = [
+        { bad: /\?\s*\?\s*\?\s*/g, rep: '' },
+        { bad: /\bE\)\s*/g, rep: '' },
+        { bad: /�️/g, rep: '⚠️' },
+        { bad: /�/g, rep: '' }
+      ];
+      emojiMap.forEach(({bad, rep}) => { out = out.replace(bad, rep); });
+      // Fix broken heading emojis and known section titles
+      out = out.replace(/^###\s*�\s*/gm,'### ');
+      out = out.replace(/^###\s*[^\w]*\s*(Key Evidence)\s*$/gmi, '🧾 **Key Evidence**');
+      out = out.replace(/^###\s*[^\w]*\s*(Broader[^\n]*)$/gmi, '🌍 **$1**');
+      out = out.replace(/^###\s*[^\w]*\s*(Insight)\s*$/gmi, '🧠 **Insight**');
+      // Lift mid-line emojis to new heading line
+      out = out.replace(/\s(🧾|🌍|🛠️|📊|💡|🧠)\s+([A-Z][^\n]+)/g, '\n\n### $1 **$2**');
+      // Tone softeners
+      out = out.replace(/\bhas undone\b/gi, 'has been described as reversing');
+      out = out.replace(/\bproves\b/gi, 'suggests');
+      out = out.replace(/\bclearly\b/gi, 'likely');
+      out = out.replace(/\bwithout question\b/gi, 'by most accounts');
+      // Ensure each section starts with a brief transition if missing
+      out = out.replace(/(###\s[^\n]+)\n\n(?!In\b|As\b|In effect\b|In practice\b)/g, '$1\n\nIn effect, ');
+      // Convert inline citations {Name} to prose style (source: Name) at sentence end
+      out = out.replace(/\s*\{([^}]+)\}/g, ' (source: $1)');
+      // If emojis appear mid-line as section starters, lift them to their own heading line
+      out = out.replace(/\s([🛠️🌍📊💡🧩🎯✨💬🌐🧠])\s+/g, '\n\n$1 ');
+      // Promote "emoji Title" lines to headings
+      out = out.replace(/^([🛠️🌍📊💡🧩🎯✨💬🌐🧠])\s+([^\n*][^\n]*)$/gm, '### $1 **$2**');
+      // Ensure bullets start on new lines (no run-on paragraphs)
+      out = out.replace(/([^\n])\s*•\s/g, '$1\n• ');
+      // Ensure a bullet starts under headings if paragraph-like content follows
+      out = out.replace(/(###\s[^\n]+)\n\n([^•#\n][^\n]+)/g, '$1\n\n• $2');
+      // Make "Label: value" lines into bullets (e.g., Accountability: …)
+      out = out.replace(/(^|\n)([A-Z][A-Za-z ]{2,}:\s)/g, '\n• $2');
+      // Ensure Insight section exists
+      const hasInsight = /###\s*[🧠💡]?\s*\*\*?Insight/i.test(out) || /\bInsight\b:/i.test(out);
+      if (!hasInsight) {
+        const firstLine = out.split('\n').find(l => l.trim().length > 0) || '';
+        const seed = firstLine.replace(/^###\s*/,'').replace(/\*\*/g,'').substring(0, 160);
+        out = out.trim() + `\n\n### 🧠 **Insight**\n\nIn sum, ${seed}.`;
+      }
+      return out;
+    } catch {
+      return text;
+    }
+  }
+
+  validateStructuredAnswer(answer) {
+    try {
+      if (!answer || answer.length < 40) return false;
+      const hasHeadings = /\n###\s/.test(answer);
+      const hasBullets = /(^|\n)•\s+/.test(answer);
+      const hasInsight = /###\s*[🧠💡]?\s*\*\*?Insight/i.test(answer) || /\bInsight\b:/i.test(answer);
+      return hasHeadings && hasBullets && hasInsight;
+    } catch { return false; }
+  }
+  
   async handleAnswerQuestion(payload, sender) {
     console.log('[TabSense] ANSWER_QUESTION received');
     try {
@@ -1887,9 +2267,20 @@ class TabSenseServiceWorker {
       // For now, create a context-aware response
       if (context && context.length > 0) {
         // Build context from tabs
-        const contextPrompt = context.map((tab, i) => 
-          `Document ${i + 1} (${tab.title} - ${tab.url}):\n${tab.summary || 'No summary available'}\nCategory: ${tab.category || 'generic'}\n---`
-        ).join('\n\n');
+        const contextPrompt = context.map((tab, i) => {
+          const base = `Document ${i + 1} (${tab.title} - ${tab.url}):`;
+          const category = tab.category || 'generic';
+          const summary = tab.summary || 'No summary available';
+          // For YouTube, include a compact excerpt of structured content (which contains comments)
+          let extra = '';
+          if (category === 'youtube') {
+            const content = tab.content || '';
+            const excerpt = content.substring(0, 3000);
+            const commentHint = 'If present below, use TOP COMMENTS and DESCRIPTION for QA.';
+            extra = `\n[YouTube Content Excerpt]\n${excerpt}\n${commentHint}`;
+          }
+          return `${base}\n${summary}${extra}\nCategory: ${category}\n---`;
+        }).join('\n\n');
         
         // Build conversation history (exclude the initial summary which is context, not dialogue)
         // Only include user questions and assistant answers from previous Q&A
@@ -1954,53 +2345,50 @@ If no verifiable claims are found, respond with "NO_CLAIMS".`;
         }
         
         // Step 2: Determine if external search is needed
-        let needsSearch = false;
+        let needsSearch = true;
         let searchResults = null;
         let searchSources = [];
         
-        // Always search if we have claims to verify, OR if question needs external context
-        if (needsVerification && extractedClaims.length > 0) {
-          needsSearch = true;
-          console.log('[TabSense] Claims need verification, performing fact-checking search');
-        } else {
-          try {
-            const searchDetectionPrompt = `Analyze this question and determine if it requires external information (facts, recent events, general knowledge) that might not be in the provided document context.
-
-Question: "${question}"
-Document Context Available: ${context.length} document(s)
-
-Respond with ONLY "YES" if external search would be helpful, or "NO" if the question can be answered from the provided documents alone.
-Examples requiring search: questions about recent news, general knowledge, facts, statistics, historical events, or topics not covered in the documents.
-Examples NOT requiring search: questions about specific content in the documents, asking for summaries, or asking about what the documents say.`;
-            
-            const detectionResult = await this.aiProviderManager.answerQuestionWithFallback(searchDetectionPrompt);
-            if (detectionResult.success && detectionResult.answer) {
-              const answer = detectionResult.answer.trim().toUpperCase();
-              needsSearch = answer.includes('YES') || answer.includes('SEARCH');
-              console.log('[TabSense] Search detection result:', answer, 'Needs search:', needsSearch);
-            }
-          } catch (searchDetectionError) {
-            console.log('[TabSense] Search detection failed, defaulting to no search:', searchDetectionError.message);
-          }
-        }
+        console.log('[TabSense] QA: Forcing external context search for better completeness');
         
-        // Step 3: Perform external search (claim-specific if available, or general)
+        // Step 3: Perform external search (claim-specific if available, or general) with caching
         if (needsSearch) {
           try {
-            let searchQuery = question;
+            let searchQuery = this.buildContextualSearchQuery(question, context[0], extractedClaims);
             
             // If we have extracted claims, search for each one specifically
             if (extractedClaims.length > 0) {
               // Combine claims for comprehensive search
               const claimsQuery = extractedClaims.slice(0, 3).join(' OR ');
-              searchQuery = `${question} (verify: ${claimsQuery})`;
+              searchQuery += ` (verify: ${claimsQuery})`;
               console.log('[TabSense] Performing fact-checking search for claims');
             } else {
-              console.log('[TabSense] Performing general external search for:', question);
+              console.log('[TabSense] Performing general external search for:', searchQuery);
             }
-            
-            searchResults = await this.webSearchService.search(searchQuery, { newsLimit: 3, serperLimit: 3 });
-            
+            // Cache key based on question + primary URL + claims hash
+            const primaryUrl = context[0]?.url || '';
+            const claimsKey = extractedClaims.join('|');
+            const cacheKey = `qa:${primaryUrl}:${question.trim().toLowerCase()}:${claimsKey}`;
+            const nowTs = Date.now();
+            const ttlMs = 10 * 60 * 1000; // 10 minutes
+            const cached = this.qaSearchCache.get(cacheKey);
+            if (cached && (nowTs - cached.timestamp) < ttlMs) {
+              searchResults = cached.results;
+              console.log('[TabSense] 🔁 Using cached external context:', searchResults?.totalResults || 0);
+            } else {
+              const fresh = await this.webSearchService.search(searchQuery, { newsLimit: 3, serperLimit: 3 });
+              // Merge with cached if it exists (union by URL)
+              if (cached && cached.results) {
+                const byUrl = new Map();
+                (cached.results.sources || []).forEach(s => byUrl.set(s.url, s));
+                (fresh.sources || []).forEach(s => byUrl.set(s.url, s));
+                fresh.sources = Array.from(byUrl.values());
+                fresh.totalResults = fresh.sources.length;
+              }
+              this.qaSearchCache.set(cacheKey, { timestamp: nowTs, results: fresh });
+              searchResults = fresh;
+            }
+
             if (searchResults && searchResults.totalResults > 0) {
               searchSources = searchResults.sources || [];
               console.log('[TabSense] Found', searchResults.totalResults, 'external search results');
@@ -2132,7 +2520,18 @@ EXAMPLES OF GOOD SOURCE ATTRIBUTION:
           }
         }
         
-        const fullPrompt = `You are a helpful research assistant providing concise, well-structured answers about web content. Your responses should be readable, direct, and efficiently formatted.
+        // Category-specific guidance
+        const cat = (context[0]?.category || 'generic').toLowerCase();
+        let categoryGuidance = '';
+        if (cat === 'news') {
+          categoryGuidance = `\nNEWS FORMAT:\n- ### 📰 **Headline Context**\n- ### 📊 **Key Facts**\n- ### 🌍 **What It Means**\n- ### 🧠 **Insight**\n`;
+        } else if (cat === 'blog') {
+          categoryGuidance = `\nBLOG FORMAT:\n- ### 🧭 **Author’s Thesis**\n- ### 🧩 **Argument Chain**\n- ### 🔍 **Evidence & Counterpoints**\n- ### 🧠 **Insight**\n`;
+        } else if (cat === 'reference') {
+          categoryGuidance = `\nREFERENCE FORMAT:\n- ### 📖 **Definition**\n- ### 🧱 **Core Components**\n- ### 🧪 **Examples**\n- ### 🧠 **Insight**\n`;
+        }
+
+        const fullPrompt = `You are a helpful research assistant providing concise, well-structured answers about web content. Your responses should be readable, direct, and efficiently formatted.${categoryGuidance}
 
 ${conversationSection}${documentContextSection}${claimsSection}${externalContextSection}CURRENT QUESTION:
 ${question}
@@ -2150,6 +2549,9 @@ OUTPUT FORMAT REQUIREMENTS:
    - Use 💡 for insights/recommendations
    - Use **Bold Text** for section headers
 
+   Category additions:
+   - If Category is youtube: include a short "🧩 Comment Themes" micro-section (3–5 themes) when comments inform the answer.
+
 3. CITATIONS: Add inline citations at the end of relevant sentences using this format:
    - {Source Name} for document sources
    - {Reuters}, {Wikipedia}, {News Source Name} for external sources
@@ -2158,7 +2560,7 @@ OUTPUT FORMAT REQUIREMENTS:
 4. LANGUAGE STYLE:
    - Be CONCISE - remove unnecessary words
    - Be DIRECT - answer immediately, no preamble
-   - Be HUMAN - conversational but efficient
+   - Be HUMAN - conversational but efficient; neutral and analytical tone (avoid absolutist or politically loaded language)
    - NO filler phrases like "I don't have enough information", "I wish I had more info"
    - If a claim can't be verified, simply omit it or state briefly "External verification unavailable for this claim"
 
@@ -2166,27 +2568,16 @@ OUTPUT FORMAT REQUIREMENTS:
    - Use bullet points with • for lists
    - Use **bold** for key terms and section headers
    - Use emojis strategically for visual organization
-   - Keep paragraphs short and scannable
+   - Keep paragraphs short and scannable; start each section with a brief transition (e.g., "In practice," "As a result,")
+    - Do NOT output empty bullets or placeholder bullets. If no bullets are warranted, write concise prose instead.
+    - NEVER output standalone source names like "Document" or "Reuters" on their own lines; only use {Source Name} inline citations.
 
 6. FOR UNVERIFIABLE CLAIMS:
    - Instead of: "I don't have enough information from external sources to confirm..."
    - Use: Skip mentioning it, or state "This cannot be verified externally" in parentheses
    - Focus on what you CAN verify rather than what you can't
 
-7. ENDING: At the end, include 3-4 suggested follow-up questions. Format as:
-   - "If you're interested, I can break down..." [question]
-   - OR just list them naturally: "You might also want to know about..." [question]
-
-EXAMPLE OF GOOD FORMAT:
-"Oil companies are managing debt amid volatile prices by emphasizing capital discipline, maintaining liquidity buffers, and diversifying investments.
-
-🛠️ Strategic Debt Management Approaches
-
-**Capital Discipline:** Many oil majors are prioritizing capital efficiency over aggressive expansion {Reuters}. This means focusing on high-return projects and delaying marginal ones.
-
-**Liquidity Reserves:** Firms are building cash buffers to weather downturns {Document}. By maintaining strong liquidity, they reduce reliance on external debt markets.
-
-If you're interested, I can break down how specific companies like Shell or TotalEnergies are applying these strategies."
+7. ENDING: Do NOT include suggested follow-up questions unless the user explicitly asks for them.
 
 CRITICAL: 
 - NO filler words or verbose explanations
@@ -2195,11 +2586,41 @@ CRITICAL:
 - YES to inline citations in curly braces
 - YES to emojis and bold formatting for readability
 
+OUTPUT EXAMPLE (copy the structure, not the content):
+
+Xi Jinping’s Power Consolidation and Its Ripple Effects
+
+China’s political architecture has entered a new era under Xi Jinping, whose anti-corruption purges and loyalty-driven promotions have consolidated his personal control — effectively dismantling Deng Xiaoping’s decentralized legacy.
+
+🛠️ Strategies Behind the Power Shift
+
+• Targeted Purges: Xi’s sweeping anti-corruption campaigns removed rivals while presenting him as a moral reformer {csmonitor.com}. This “self-revolution” narrative re-frames power consolidation as patriotic duty.
+• Selective Promotions: Loyalists now fill key leadership posts across ministries and provinces, tightening ideological alignment and accelerating decision-making {Document}.
+
+Together, these twin levers — purging and promoting — have built the most vertically integrated power structure in modern Chinese politics.
+
+🌍 Governance and Policy Consequences
+
+• Centralized Authority: Deng’s model of distributed leadership has yielded to a personality-centric system {project-syndicate.org}.
+• Efficiency vs. Fragility: Rapid policy execution now coexists with greater risk — fewer institutional guardrails, faster feedback loops {asiasociety.org}.
+• Global Perception: Analysts describe this phase as a return to “Stalin-logic politics” — a blend of fear-based loyalty and high administrative precision {Reuters}.
+
+💬 Public Sentiment Snapshot
+
+• Admiration: Some citizens and commentators praise Xi’s strength and stability narrative.
+• Caution: Others fear the erosion of open debate and institutional diversity.
+• Defense: A minority credits the approach for enhancing security and raising living standards.
+
+💡 Insight: The Paradox of Stability
+
+Xi’s governance philosophy fuses control with continuity — aiming for long-term stability through personal dominance. Yet history warns that the tighter a system centralizes, the less adaptive it becomes.
+Whether this model ensures enduring order or sows the seeds of future volatility will define the next chapter of China’s political evolution.
+
 Answer:`;
         
         // Step 4: Use AI to generate the answer with enhanced context
         try {
-          const qaResult = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt);
+          let qaResult = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt);
           
           if (qaResult.success && qaResult.answer) {
             // Combine document sources with search sources
@@ -2207,18 +2628,71 @@ Answer:`;
               ...context.map(tab => ({ title: tab.title, url: tab.url, type: 'document' })),
               ...searchSources.map(src => ({ title: src.title, url: src.url, type: 'external' }))
             ];
-            
-            // Get model name for Gemini (for better logging)
+
+            // Normalize answer to merge stray source-only lines into inline citations and clean markdown
+            const normalizeAnswer = (answerText, sourcesList) => {
+              const shortNameFrom = (s) => {
+                if (s.title && s.title.trim().length > 0) {
+                  const t = s.title.trim();
+                  return t.length > 60 ? t.substring(0, 57) + '...' : t;
+                }
+                try {
+                  const host = new URL(s.url).hostname.replace(/^www\./, '');
+                  return host;
+                } catch { return 'Source'; }
+              };
+              const sourceNames = new Set();
+              (sourcesList || []).forEach(s => sourceNames.add(shortNameFrom(s)));
+              sourceNames.add('Document');
+
+              const lines = answerText.split('\n');
+              const out = [];
+              let lastWasContent = false;
+              for (let i = 0; i < lines.length; i++) {
+                const raw = lines[i];
+                const line = raw.trim();
+                if (line.length === 0) { out.push(raw); continue; }
+                // Skip empty bullets
+                if (line === '•' || line === '• ' || line === '•\t') continue;
+                // Source-only line → append as inline citation to previous non-empty line
+                const isDomain = /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(line);
+                if ((sourceNames.has(line) || isDomain)) {
+                  if (out.length > 0) {
+                  for (let j = out.length - 1; j >= 0; j--) {
+                    if (out[j].trim().length > 0) {
+                      out[j] = out[j].replace(/[\s.]*$/, '') + ` {${line}}`;
+                      break;
+                    }
+                  }
+                  }
+                  // If there is no previous content, drop stray source-only line
+                  continue;
+                }
+                // Join single-word bullets or dangling fragments with the next line if needed (basic heuristic)
+                if (line === '•' || line === '• -') continue;
+                out.push(raw);
+                lastWasContent = true;
+              }
+              // Second pass: remove residual standalone 'Document' tokens inside lines
+              let joined = out.join('\n');
+              joined = joined.replace(/\bDocument\b\.?/g, '');
+              // Apply global markdown cleaning
+              return this.cleanMarkdown(joined);
+            };
+
+            // Formatting disabled for QA: return raw model answer
+            let cleaned = qaResult.answer;
+
+            // Get model name for logging
             let providerDisplay = qaResult.provider;
             if (qaResult.provider === 'gemini') {
-              // We don't know which model succeeded, but that's okay
               providerDisplay = 'gemini';
             }
             
             return {
               success: true,
               data: {
-                answer: qaResult.answer,
+                answer: cleaned,
                 sources: allSources,
                 provider: providerDisplay,
                 confidence: searchResults && searchResults.totalResults > 0 ? 0.9 : 0.8
@@ -2255,6 +2729,41 @@ Answer:`;
       console.error('[TabSense] Error answering question:', error);
       return { success: false, error: error.message };
     }
+  }
+
+  buildContextualSearchQuery(question, primaryTab, extractedClaims) {
+    try {
+      const title = (primaryTab?.title || '').trim();
+      const summary = (primaryTab?.summary || '').trim();
+      const url = primaryTab?.url || '';
+      let host = '';
+      try { host = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+
+      // Keyword extraction from title + summary
+      const baseText = `${title} ${summary}`.toLowerCase();
+      const stop = new Set(['the','a','an','and','or','but','so','of','to','in','on','for','with','this','that','is','are','was','were','it','as','at','be','by','from','about','we','you','they','i','me','my','our','your','their','he','she','his','her','them','us','not','have','has','had','do','did','does','been','will','would','can','could','should','if','then','than','there','here','just','also','more','most','some','any','very','into','over','under','out','up','down','what','which','who','when','where','why','how']);
+      const freq = new Map();
+      baseText.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).forEach(w => {
+        if (!w || w.length < 3 || stop.has(w)) return;
+        freq.set(w, (freq.get(w) || 0) + 1);
+      });
+      const keywords = Array.from(freq.entries()).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([w])=>w);
+
+      let query = question.trim();
+      if (title) query += ` "${title.substring(0, 80)}"`;
+      if (keywords.length > 0) query += ' ' + keywords.slice(0,4).join(' ');
+      if (host) query += ` site:${host}`;
+      if (extractedClaims && extractedClaims.length > 0) {
+        query += ` (verify: ${extractedClaims.slice(0,3).join(' | ')})`;
+      }
+      return query;
+    } catch {
+      return question;
+    }
+  }
+
+  getFormatterInstruction() {
+    return 'INSTRUCTIONS: Format the output in clear Markdown with headings (###), short paragraphs (1–2 lines), bullet points, and tasteful emojis for readability. Avoid repeating sources or the word "Document". Use inline citations in curly braces e.g., {Reuters} where applicable.\n\n';
   }
 
   async handleSummarizeText(payload, sender) {
@@ -2390,15 +2899,20 @@ Answer:`;
     } catch (error) {
       console.error('[TabSense] Error processing tabs:', error);
       return { success: false, error: error.message };
+    } finally {
+      this.processingTabs.delete(tab.id);
     }
   }
 
   async handleGetAPIStatus(payload, sender) {
     console.log('[TabSense] GET_API_STATUS received');
     try {
-      // Get API keys from storage
-      const result = await chrome.storage.local.get(['tabsense_api_keys']);
-      const keys = result.tabsense_api_keys || {};
+      // Get API keys from storage (check multiple locations for YouTube key)
+      const result = await chrome.storage.local.get(['tabsense_api_keys', 'other_api_keys', 'ai_api_keys', 'youtube_api_key']);
+      const keys = {
+        youtube: result.tabsense_api_keys?.youtube || result.other_api_keys?.youtube || result.ai_api_keys?.youtube || result.youtube_api_key || '',
+        newsapi: result.tabsense_api_keys?.newsapi || result.other_api_keys?.newsapi || ''
+      };
       
         return {
           success: true,
