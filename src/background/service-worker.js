@@ -1172,7 +1172,22 @@ class TabSenseServiceWorker {
         return;
       }
       
-      // Inject content script and get page data
+      // YouTube: handle via API first (with caching), fallback to basic
+      const isYouTube = /(?:youtube\.com|youtu\.be)/i.test(url);
+      if (isYouTube) {
+        try {
+          const ytResult = await this.processYouTubeTab(tab);
+          if (ytResult) {
+            // Broadcast to UI that a tab was processed
+            this.broadcastMessage({ action: 'TAB_AUTO_PROCESSED', data: ytResult });
+            return;
+          }
+        } catch (ytErr) {
+          console.warn('[TabSense] YouTube processing failed, falling back to generic:', ytErr?.message);
+        }
+      }
+
+      // Inject content script and get page data (non-YouTube or fallback)
       try {
         const results = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
@@ -1310,6 +1325,222 @@ class TabSenseServiceWorker {
     } catch (error) {
       console.log('[TabSense] No listeners for broadcast message:', error.message);
     }
+  }
+
+  // ==================== YouTube Helpers ====================
+  async getYouTubeAPIKey() {
+    try {
+      const result = await chrome.storage.local.get(['tabsense_api_keys']);
+      return result.tabsense_api_keys?.youtube || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  extractYouTubeVideoId(url) {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+      /youtube\.com\/watch\?.*v=([^&\n?#]+)/
+    ];
+    for (const pattern of patterns) {
+      const m = url.match(pattern);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  async getYouTubeCache(videoId) {
+    const key = `tabSense_cache_youtube_${videoId}`;
+    const res = await chrome.storage.local.get([key]);
+    return res[key] || null;
+  }
+
+  async setYouTubeCache(videoId, data) {
+    const key = `tabSense_cache_youtube_${videoId}`;
+    const value = { data, timestamp: Date.now() };
+    await chrome.storage.local.set({ [key]: value });
+  }
+
+  async fetchYouTubeAPI(videoId, apiKey, { commentsLimit = 150 } = {}) {
+    const base = 'https://www.googleapis.com/youtube/v3';
+    // Video details
+    const videoUrl = `${base}/videos?part=snippet,statistics,contentDetails&id=${videoId}&key=${apiKey}`;
+    const videoResp = await fetch(videoUrl);
+    if (!videoResp.ok) throw new Error(`YouTube videos API error: ${videoResp.status}`);
+    const videoJson = await videoResp.json();
+    const video = videoJson.items?.[0];
+    if (!video) throw new Error('YouTube video not found');
+
+    // Channel info
+    const channelId = video.snippet.channelId;
+    let channel = null;
+    try {
+      const chUrl = `${base}/channels?part=snippet,statistics&id=${channelId}&key=${apiKey}`;
+      const chResp = await fetch(chUrl);
+      if (chResp.ok) {
+        const chJson = await chResp.json();
+        channel = chJson.items?.[0] || null;
+      }
+    } catch {}
+
+    // Comments (paginate until limit or no nextPage)
+    const comments = [];
+    let pageToken = '';
+    while (comments.length < commentsLimit) {
+      const remain = commentsLimit - comments.length;
+      const maxResults = Math.min(100, remain);
+      const cmUrl = `${base}/commentThreads?part=snippet,replies&videoId=${videoId}&order=relevance&maxResults=${maxResults}&key=${apiKey}${pageToken ? `&pageToken=${pageToken}` : ''}`;
+      const cmResp = await fetch(cmUrl);
+      if (!cmResp.ok) break;
+      const cmJson = await cmResp.json();
+      (cmJson.items || []).forEach(item => {
+        const s = item.snippet?.topLevelComment?.snippet;
+        if (!s) return;
+        comments.push({
+          id: item.id,
+          text: s.textDisplay || s.textOriginal || '',
+          author: s.authorDisplayName,
+          authorChannelId: s.authorChannelId?.value,
+          likeCount: s.likeCount || 0,
+          publishedAt: s.publishedAt,
+          replyCount: item.snippet?.totalReplyCount || 0
+        });
+      });
+      pageToken = cmJson.nextPageToken || '';
+      if (!pageToken) break;
+    }
+
+    return {
+      video: {
+        id: video.id,
+        title: video.snippet.title,
+        description: video.snippet.description || '',
+        channelTitle: video.snippet.channelTitle,
+        channelId: video.snippet.channelId,
+        publishedAt: video.snippet.publishedAt,
+        duration: video.contentDetails.duration,
+        viewCount: parseInt(video.statistics.viewCount || '0', 10),
+        likeCount: parseInt(video.statistics.likeCount || '0', 10),
+        commentCount: parseInt(video.statistics.commentCount || '0', 10),
+        tags: video.snippet.tags || [],
+        thumbnails: video.snippet.thumbnails
+      },
+      channel: channel ? {
+        id: channel.id,
+        title: channel.snippet?.title,
+        description: channel.snippet?.description || '',
+        subscriberCount: parseInt(channel.statistics?.subscriberCount || '0', 10),
+        videoCount: parseInt(channel.statistics?.videoCount || '0', 10),
+        viewCount: parseInt(channel.statistics?.viewCount || '0', 10)
+      } : null,
+      comments
+    };
+  }
+
+  buildYouTubeContent(youtubeData, url) {
+    const { video, channel, comments } = youtubeData;
+    const lines = [];
+    lines.push(`VIDEO TITLE: ${video.title}`);
+    lines.push(`CHANNEL: ${video.channelTitle}${channel && channel.subscriberCount ? ` (${channel.subscriberCount.toLocaleString()} subscribers)` : ''}`);
+    lines.push(`VIEWS: ${video.viewCount.toLocaleString()} | LIKES: ${video.likeCount.toLocaleString()} | COMMENTS: ${video.commentCount.toLocaleString()}`);
+    if (video.publishedAt) lines.push(`PUBLISHED: ${new Date(video.publishedAt).toLocaleDateString()}`);
+    if (video.duration) lines.push(`DURATION: ${video.duration}`);
+    lines.push(`URL: ${url}`);
+    lines.push('');
+    if (video.description) {
+      lines.push('DESCRIPTION:');
+      lines.push(video.description.substring(0, 4000));
+      lines.push('');
+    }
+    if (comments && comments.length > 0) {
+      lines.push('TOP COMMENTS:');
+      comments.slice(0, 150).forEach((c, idx) => {
+        const likeStr = c.likeCount ? ` (${c.likeCount} likes)` : '';
+        lines.push(`${idx + 1}. [${c.author}] ${c.text.replace(/\n+/g, ' ').substring(0, 500)}${likeStr}`);
+      });
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  async processYouTubeTab(tab) {
+    const url = tab.url;
+    const videoId = this.extractYouTubeVideoId(url);
+    if (!videoId) return null;
+
+    const apiKey = await this.getYouTubeAPIKey();
+    let youtubeData = null;
+
+    // Cache: 6 hours TTL
+    const ttlMs = 6 * 60 * 60 * 1000;
+    if (apiKey) {
+      const cached = await this.getYouTubeCache(videoId);
+      if (cached && (Date.now() - cached.timestamp) < ttlMs) {
+        youtubeData = cached.data;
+        console.log('[YouTube] Using cached data for', videoId);
+      } else {
+        try {
+          youtubeData = await this.fetchYouTubeAPI(videoId, apiKey, { commentsLimit: 150 });
+          await this.setYouTubeCache(videoId, youtubeData);
+        } catch (e) {
+          console.warn('[YouTube] API fetch failed:', e?.message);
+        }
+      }
+    }
+
+    let content = '';
+    let summary = '';
+    let title = tab.title || 'YouTube Video';
+
+    if (youtubeData) {
+      content = this.buildYouTubeContent(youtubeData, url);
+      try {
+        const aiResult = await this.aiProviderManager.summarizeWithFallback(content, url);
+        summary = aiResult.summary;
+      } catch (e) {
+        console.warn('[YouTube] Summarization failed, using description fallback');
+        summary = youtubeData.video?.description?.substring(0, 300) || 'YouTube video';
+      }
+      title = youtubeData.video?.title || title;
+    } else {
+      // Fallback when no API key: basic extraction for title
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => document.title
+        });
+        title = results?.[0]?.result || title;
+      } catch {}
+      content = `VIDEO TITLE: ${title}\nURL: ${url}`;
+      try {
+        const aiResult = await this.aiProviderManager.summarizeWithFallback(content, url);
+        summary = aiResult.summary;
+      } catch {
+        summary = title;
+      }
+    }
+
+    const tabData = {
+      id: `${url}-${Date.now()}`,
+      tabId: tab.id,
+      title,
+      url,
+      content,
+      summary,
+      category: 'youtube',
+      categoryConfidence: 1.0,
+      youtubeData: youtubeData || null,
+      processed: true,
+      timestamp: Date.now()
+    };
+
+    // Persist into collection
+    const result = await chrome.storage.local.get(['multi_tab_collection']);
+    const existingTabs = result.multi_tab_collection || [];
+    existingTabs.push(tabData);
+    await chrome.storage.local.set({ multi_tab_collection: existingTabs });
+    console.log('[TabSense] YouTube tab processed and stored:', url);
+    return tabData;
   }
 
   async handlePing(payload, sender) {
