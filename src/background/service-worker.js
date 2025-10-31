@@ -514,26 +514,42 @@ Focus on the most important information with clear formatting. Start immediately
       const blogSignals = [
         'in my opinion', 'i think', 'we believe', 'guide', 'how to', 'tutorial', 'lessons learned', 'my take', 'opinion', 'thoughts', 'newsletter', 'substack'
       ];
-      // Reference signals
+      // Reference signals - medical/health/educational content
       const refSignals = [
-        'definition', 'overview', 'documentation', 'api reference', 'parameters', 'returns', 'example:', 'see also', 'encyclopedia', 'abstract', 'introduction', 'conclusion', 'dataset'
+        'definition', 'overview', 'documentation', 'api reference', 'parameters', 'returns', 'example:', 'see also', 'encyclopedia', 'abstract', 'introduction', 'conclusion', 'dataset',
+        'anatomy', 'function', 'parts', 'segments', 'disorders', 'symptoms', 'treatment', 'diagnosis', 'condition', 'disease', 'health', 'medical', 'clinic', 'hospital', 'patient', 'doctor', 'physician',
+        'structure', 'system', 'organ', 'tissue', 'cell', 'muscle', 'bone', 'nerve', 'organ', 'body part', 'anatomical', 'physiological'
       ];
       // Academic signals
       const academicSignals = [
-        'research', 'study', 'paper', 'publication', 'peer-reviewed', 'methodology', 'hypothesis', 'findings', 'citation', 'references', 'doi:', 'abstract', 'academic', 'scholarly', 'journal article', 'thesis', 'dissertation', 'university', 'institute'
+        'research', 'study', 'paper', 'publication', 'peer-reviewed', 'methodology', 'hypothesis', 'findings', 'citation', 'references', 'doi:', 'abstract', 'academic', 'scholarly', 'journal article', 'thesis', 'dissertation', 'university', 'institute',
+        'clinical trial', 'randomized', 'meta-analysis', 'systematic review', 'evidence-based', 'case study', 'observational study'
       ];
       // Finance signals
       const financeSignals = [
-        'stock', 'market', 'trading', 'investment', 'portfolio', 'revenue', 'profit', 'earnings', 'financial', 'quarterly', 'fiscal', 'dollar', 'currency', 'exchange', 'ticker', 'dividend', 'analyst', 'valuation', 'chart', 'graph', 'trend'
+        'stock', 'market', 'trading', 'investment', 'portfolio', 'revenue', 'profit', 'earnings', 'financial', 'quarterly', 'fiscal', 'dollar', 'currency', 'exchange', 'ticker', 'dividend', 'analyst', 'valuation', 'chart', 'graph', 'trend',
+        'price', 'share', 'bond', 'mutual fund', 'etf', 'derivative', 'option', 'futures', 'forex', 'crypto', 'bitcoin'
       ];
       newsSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.news++; });
       blogSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.blog++; });
       refSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.reference++; });
       academicSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.academic++; });
       financeSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.finance++; });
+      
+      // Log heuristic hits for debugging
+      const totalHits = Object.values(hits).reduce((a, b) => a + b, 0);
+      if (totalHits > 0) {
+        console.log('[AIProviderManager] Heuristic hits:', hits, 'total:', totalHits);
+      }
+      
       const maxCat = Object.entries(hits).sort((a,b)=>b[1]-a[1])[0];
-      if (maxCat && maxCat[1] >= 3) {
-        return { category: maxCat[0], confidence: 0.85, method: 'heuristic' };
+      // Lower threshold to 2 hits, or if one category has significantly more hits than others
+      const threshold = maxCat && maxCat[1] >= 2 && maxCat[1] > 0;
+      const significantLead = maxCat && maxCat[1] >= 1 && maxCat[1] > (Object.values(hits).sort((a,b)=>b-a)[1] || 0) * 1.5;
+      
+      if (threshold || significantLead) {
+        console.log(`[AIProviderManager] ✅ Heuristic categorized as: ${maxCat[0]} (${maxCat[1]} hits)`);
+        return { category: maxCat[0], confidence: Math.min(0.85, 0.6 + (maxCat[1] * 0.1)), method: 'heuristic' };
       }
     } catch {}
     
@@ -549,48 +565,79 @@ Focus on the most important information with clear formatting. Start immediately
 
 URL: ${url}
 Title: ${title || 'N/A'}
-Content preview: ${contentToAnalyze}
+Content preview: ${contentToAnalyze.substring(0, 2000)}
 
 Categories:
-- **news**: Current events, breaking news, reports, journalism, factual reporting about recent events
-- **blog**: Personal opinion, editorial, how-to guide, tutorial, personal thoughts, commentary
-- **reference**: Encyclopedia article, documentation, technical reference, educational content, factual information
-- **academic**: Research papers, scholarly articles, academic publications, scientific studies, peer-reviewed content
-- **finance**: Financial news, market analysis, stock data, economic reports, trading information, financial charts
-- **generic**: Everything else (social media, forums, e-commerce, etc.)
+- **news**: Current events, breaking news, reports, journalism, factual reporting about recent events. Must be about recent/current happenings.
+- **blog**: Personal opinion, editorial, how-to guide, tutorial, personal thoughts, commentary, opinion pieces, lifestyle articles, recipes
+- **reference**: Encyclopedia article, documentation, technical reference, educational content, factual information, medical/health information pages, anatomy guides, health condition pages, technical documentation, API references, dictionaries, educational resources
+- **academic**: Research papers, scholarly articles, academic publications, scientific studies, peer-reviewed content, journal articles with methodology, citations, and findings
+- **finance**: Financial news, market analysis, stock data, economic reports, trading information, financial charts, earnings reports, investment advice
+- **generic**: Everything else (social media, forums, e-commerce product pages, landing pages, etc.)
+
+Examples:
+- Medical/health information page about "Spine Structure and Function" → **reference** (educational health content)
+- Wikipedia article about "Python Programming" → **reference** (encyclopedia)
+- Mayo Clinic page about "Diabetes Symptoms" → **reference** (medical reference)
+- "How to Build a Website" tutorial → **blog** (how-to guide)
+- "My Experience with..." → **blog** (personal opinion)
+- Research paper with abstract, methodology, citations → **academic**
+- "Stock Market Rises Today" → **news** (current event)
+- "AAPL Stock Price Analysis" → **finance** (financial data)
 
 Important rules:
-1. If it's on a news site (like bbc.com) but the content is a recipe, cooking blog, lifestyle article, or entertainment piece - categorize as "blog", NOT "news"
-2. News must be about current events, factual reporting, journalism - not opinion pieces
-3. Reference includes Wikipedia articles, technical docs, educational content
-4. Academic includes research papers, scientific articles, scholarly publications with methodology, findings, citations
-5. Finance includes stock market data, financial charts, economic analysis, trading information, earnings reports
-6. Blog includes opinion pieces, tutorials, personal experiences, guides
-7. Prefer content semantics over domain. If content reads like documentation/tutorial, choose blog/reference appropriately even on news domains.
+1. Medical/health information pages (like Cleveland Clinic, Mayo Clinic) should be "reference" NOT "generic"
+2. Educational content about anatomy, diseases, health conditions → "reference"
+3. If it's on a news site but content is a recipe, lifestyle article → "blog"
+4. News must be about CURRENT events, not general information
+5. Reference includes educational, medical, technical, and factual content
+6. Prefer content semantics over domain name
 
 Respond with ONLY the category name: news, blog, reference, academic, finance, or generic
 
 Category:`;
       
+      console.log('[AIProviderManager] Calling AI for categorization with content length:', contentToAnalyze.length);
       const result = await this.answerQuestionWithFallback(prompt);
+      console.log('[AIProviderManager] AI categorization response:', result);
+      
       if (result.success && result.answer) {
         const category = result.answer.trim().toLowerCase();
-        // Validate category
+        console.log('[AIProviderManager] AI raw category response:', category);
+        
+        // Validate category - try multiple matching strategies
         const validCategories = ['news', 'blog', 'reference', 'academic', 'finance', 'youtube', 'generic'];
-        const matchedCategory = validCategories.find(cat => category.includes(cat) || cat.includes(category));
+        let matchedCategory = validCategories.find(cat => category === cat);
+        if (!matchedCategory) {
+          matchedCategory = validCategories.find(cat => category.includes(cat) || cat.includes(category));
+        }
+        // Also check for partial matches (e.g., "reference material" → "reference")
+        if (!matchedCategory) {
+          for (const validCat of validCategories) {
+            if (category.includes(validCat.substring(0, 4)) || validCat.includes(category.substring(0, 4))) {
+              matchedCategory = validCat;
+              break;
+            }
+          }
+        }
         
         if (matchedCategory && matchedCategory !== 'youtube') { // YouTube already handled by URL
-          console.log(`[AIProviderManager] ✅ AI categorized as: ${matchedCategory} (from: ${category})`);
-      return {
+          console.log(`[AIProviderManager] ✅ AI categorized as: ${matchedCategory} (from raw: "${category}")`);
+          return {
             category: matchedCategory, 
             confidence: 0.85, 
             method: 'ai',
             reasoning: `Content analysis determined this is ${matchedCategory} content`
           };
+        } else {
+          console.log(`[AIProviderManager] ⚠️ AI category "${category}" did not match valid categories, falling back to URL-based`);
         }
+      } else {
+        console.log('[AIProviderManager] ⚠️ AI categorization returned no answer or failed');
       }
     } catch (error) {
       console.log('[AIProviderManager] AI categorization failed:', error.message);
+      console.log('[AIProviderManager] AI categorization error stack:', error.stack);
     }
     
     // Fallback to URL-based
@@ -605,17 +652,31 @@ Category:`;
       return { category: 'reference', confidence: 0.9, method: 'url' };
     }
     // Developer/docs sites
-    if (urlLower.includes('docs.') || urlLower.includes('/docs') || urlLower.includes('developer.')) {
+    if (urlLower.includes('docs.') || urlLower.includes('/docs') || urlLower.includes('developer.') ||
+        urlLower.includes('/documentation') || urlLower.includes('/api/')) {
       return { category: 'reference', confidence: 0.75, method: 'url' };
     }
+    
+    // Medical/Health/Reference sites (educational medical content)
+    if (urlLower.includes('clevelandclinic.org') || urlLower.includes('mayoclinic.org') ||
+        urlLower.includes('webmd.com') || urlLower.includes('healthline.com') ||
+        urlLower.includes('medlineplus.gov') || urlLower.includes('nih.gov') ||
+        urlLower.includes('cdc.gov') || urlLower.includes('who.int') ||
+        urlLower.includes('/health/') || urlLower.includes('/medical/') ||
+        urlLower.includes('.edu/health') || urlLower.includes('medical-dictionary')) {
+      return { category: 'reference', confidence: 0.8, method: 'url' };
+    }
+    
     // Academic sites
     if (urlLower.includes('arxiv.org') || urlLower.includes('scholar.google.com') || 
         urlLower.includes('jstor.org') || urlLower.includes('researchgate.net') ||
         urlLower.includes('pubmed.ncbi.nlm.nih.gov') || urlLower.includes('ieee.org') ||
         urlLower.includes('acm.org') || urlLower.includes('nature.com') ||
-        urlLower.includes('science.org') || urlLower.includes('doi.org')) {
+        urlLower.includes('science.org') || urlLower.includes('doi.org') ||
+        urlLower.includes('.edu') && (urlLower.includes('/research') || urlLower.includes('/publications'))) {
       return { category: 'academic', confidence: 0.85, method: 'url' };
     }
+    
     // Finance sites
     if (urlLower.includes('bloomberg.com') || urlLower.includes('reuters.com/finance') ||
         urlLower.includes('yahoo.com/finance') || urlLower.includes('finance.yahoo.com') ||
@@ -623,7 +684,8 @@ Category:`;
         urlLower.includes('investing.com') || urlLower.includes('nasdaq.com') ||
         urlLower.includes('ft.com') || urlLower.includes('wsj.com/markets') ||
         urlLower.includes('cnbc.com') || urlLower.includes('financial') ||
-        urlLower.includes('/stock') || urlLower.includes('/trading')) {
+        urlLower.includes('/stock') || urlLower.includes('/trading') ||
+        urlLower.includes('/market') || urlLower.includes('/quote')) {
       return { category: 'finance', confidence: 0.75, method: 'url' };
     }
     
@@ -804,8 +866,9 @@ Category:`;
   }
   
   async summarizeWithFallback(content, url) {
-    // First, try Chrome built-in AI (Summarizer API)
+    // First, try Chrome built-in AI (Summarizer API or Gemini Nano)
     try {
+      // Try Chrome Summarizer API first
       if (typeof Summarizer !== 'undefined') {
         const availability = await Summarizer.availability();
         if (availability === 'available') {
@@ -818,8 +881,24 @@ Category:`;
           console.log('[AIProviderManager] Chrome Summarizer available but needs download');
         }
       }
+      
+      // Try Gemini Nano (if available as Chrome built-in)
+      if (typeof GeminiNano !== 'undefined') {
+        const nanoAvailability = await GeminiNano.availability();
+        if (nanoAvailability === 'available') {
+          console.log('[AIProviderManager] Trying Gemini Nano for summarization...');
+          const nanoSession = await GeminiNano.create();
+          // Gemini Nano typically uses prompt-based summarization
+          const prompt = `Summarize the following content concisely:\n\n${content.substring(0, 8000)}`;
+          const summary = await nanoSession.prompt(prompt);
+          console.log('[AIProviderManager] ✅ Success with Gemini Nano');
+          return { success: true, summary, provider: 'chrome-nano' };
+        } else if (nanoAvailability === 'downloadable') {
+          console.log('[AIProviderManager] Gemini Nano available but needs download');
+        }
+      }
     } catch (chromeError) {
-      console.log('[AIProviderManager] Chrome Summarizer not available, falling back to external providers');
+      console.log('[AIProviderManager] Chrome AI not available, falling back to external providers:', chromeError.message);
     }
     
     // Get enabled providers from storage
@@ -1058,72 +1137,139 @@ Category:`;
   }
 }
 
-// Function to extract and filter relevant images (diagrams, charts, educational)
-function extractRelevantImages() {
-  try {
-    // Find main content area
-    const contentArea = document.querySelector('article') || 
-                        document.querySelector('main') || 
-                        document.querySelector('[role="main"]') ||
-                        document.querySelector('.content') ||
-                        document.querySelector('#content') ||
-                        document.body;
-    
-    // Extract images from content area only (not headers/footers)
-    const allImages = Array.from(contentArea.querySelectorAll('img'))
-      .filter(img => {
-        // Exclude data URLs and very small images (likely icons)
-        if (!img.src || img.src.startsWith('data:')) return false;
-        
-        // Check dimensions (exclude tiny icons/logos)
-        const width = img.naturalWidth || img.width || 0;
-        const height = img.naturalHeight || img.height || 0;
-        if (width < 200 || height < 200) return false;
-        
-        // Check if in unwanted areas (headers, footers, ads)
-        const parent = img.closest('header, footer, nav, aside, .header, .footer, .nav, .advertisement, .ad, .sidebar');
-        if (parent) return false;
-        
-        // Check alt text and title for relevance
-        const alt = (img.alt || '').toLowerCase();
-        const title = (img.title || '').toLowerCase();
-        const src = img.src.toLowerCase();
-        
-        // Relevant keywords for diagrams, charts, educational content
-        const relevantKeywords = [
-          'diagram', 'chart', 'graph', 'figure', 'illustration', 'image', 'picture',
-          'plot', 'visualization', 'schema', 'flowchart', 'map', 'table',
-          'financial', 'trading', 'stock', 'market', 'research', 'study', 'paper',
-          'academic', 'scientific', 'data', 'analysis', 'results', 'findings'
-        ];
-        
-        const combined = `${alt} ${title} ${src}`;
-        const hasRelevantKeyword = relevantKeywords.some(keyword => combined.includes(keyword));
-        
-        // Also include if in common content areas (likely to be relevant)
-        const isInContentArea = img.closest('article, .article, .post, .entry, .content, .main-content, figure, .figure');
-        
-        return hasRelevantKeyword || isInContentArea;
-      })
-      .map(img => ({
-        src: img.src,
-        alt: img.alt || '',
-        title: img.title || '',
-        width: img.naturalWidth || img.width || 0,
-        height: img.naturalHeight || img.height || 0,
-        context: (img.closest('figure')?.querySelector('figcaption')?.textContent || '').trim().substring(0, 200)
-      }))
-      .slice(0, 10); // Limit to 10 most relevant images
-    
-    return allImages;
-  } catch (error) {
-    console.error('[extractRelevantImages] Error:', error);
-    return [];
-  }
-}
-
 // Function to extract page content (injected into tabs)
+// Note: extractRelevantImages is now defined inside extractPageContent so it's available when injected
 function extractPageContent() {
+  // Inner function to extract and filter relevant images (must be inside extractPageContent for injection)
+  function extractRelevantImages() {
+    try {
+      // Find main content area
+      const contentArea = document.querySelector('article') || 
+                          document.querySelector('main') || 
+                          document.querySelector('[role="main"]') ||
+                          document.querySelector('.content') ||
+                          document.querySelector('#content') ||
+                          document.body;
+      
+      // Extract images from content area only (not headers/footers)
+      const allImages = Array.from(contentArea.querySelectorAll('img'))
+        .filter(img => {
+          // Exclude data URLs and very small images (likely icons)
+          if (!img.src || img.src.startsWith('data:')) return false;
+          
+          // Check dimensions (exclude tiny icons/logos) - minimum 150px
+          const width = img.naturalWidth || img.width || 0;
+          const height = img.naturalHeight || img.height || 0;
+          if ((width < 150 && height < 150) && width !== 0 && height !== 0) return false;
+          
+          // STRICT: Exclude ads and unrelated images
+          // Check for ad-related classes, IDs, and attributes
+          const imgClasses = (img.className || '').toLowerCase();
+          const imgId = (img.id || '').toLowerCase();
+          const parentClasses = (img.parentElement?.className || '').toLowerCase();
+          const parentId = (img.parentElement?.id || '').toLowerCase();
+          const combinedAttributes = `${imgClasses} ${imgId} ${parentClasses} ${parentId}`;
+          
+          // Ad-related keywords to exclude
+          const adKeywords = [
+            'ad', 'advertisement', 'advert', 'sponsor', 'sponsored', 'promo', 'promotion',
+            'banner', 'sidebar', 'widget', 'adblock', 'adsense', 'doubleclick',
+            'ad-slot', 'ad-container', 'ad-wrapper', 'ad-banner', 'google-ad',
+            'facebook', 'twitter', 'instagram', 'social', 'share', 'like', 'follow',
+            'logo', 'icon', 'badge', 'button', 'nav-icon', 'menu-icon', 'favicon',
+            'cookie', 'privacy', 'terms', 'subscribe', 'newsletter', 'popup', 'modal'
+          ];
+          
+          // Check if image or parent contains ad keywords
+          if (adKeywords.some(keyword => combinedAttributes.includes(keyword))) {
+            return false;
+          }
+          
+          // Check if in unwanted areas (headers, footers, ads, sidebars)
+          const unwantedSelectors = [
+            'header', 'footer', 'nav', 'aside', '.header', '.footer', '.nav', 
+            '.advertisement', '.ad', '.sidebar', '.ads', '.ad-container',
+            '.ad-wrapper', '.banner', '.widget', '.social-media', '.social',
+            '.share-buttons', '.newsletter', '.popup', '.modal', '.cookie-banner',
+            '[role="banner"]', '[role="complementary"]', '[role="navigation"]'
+          ];
+          
+          if (img.closest(unwantedSelectors.join(', '))) return false;
+          
+          // Exclude social media icons and profile images (usually square and small)
+          const aspectRatio = width > 0 && height > 0 ? width / height : 1;
+          if (aspectRatio > 0.9 && aspectRatio < 1.1 && (width < 200 || height < 200)) {
+            // Likely a profile picture or social icon
+            const srcLower = img.src.toLowerCase();
+            if (srcLower.includes('avatar') || srcLower.includes('profile') || 
+                srcLower.includes('user') || srcLower.includes('social')) {
+              return false;
+            }
+          }
+          
+          // Check alt text and title for relevance (must pass at least one relevance check)
+          const alt = (img.alt || '').toLowerCase();
+          const title = (img.title || '').toLowerCase();
+          const src = img.src.toLowerCase();
+          
+          // Exclude images with ad-related alt/title
+          if (adKeywords.some(keyword => alt.includes(keyword) || title.includes(keyword))) {
+            return false;
+          }
+          
+          // Exclude common ad image patterns in URLs
+          const adUrlPatterns = [
+            '/ad/', '/ads/', '/advertisement/', '/banner/', '/sponsor/',
+            '/advert/', '/promo/', '/promotion/', '/tracking/', '/analytics',
+            'doubleclick', 'googleads', 'adsense', 'facebook.com/tr',
+            'pixel', 'beacon', 'sponsor', 'affiliate'
+          ];
+          
+          if (adUrlPatterns.some(pattern => src.includes(pattern))) {
+            return false;
+          }
+          
+          // Relevant keywords for diagrams, charts, educational content
+          const relevantKeywords = [
+            'diagram', 'chart', 'graph', 'figure', 'illustration', 'image', 'picture',
+            'plot', 'visualization', 'schema', 'flowchart', 'map', 'table',
+            'financial', 'trading', 'stock', 'market', 'research', 'study', 'paper',
+            'academic', 'scientific', 'data', 'analysis', 'results', 'findings',
+            'anatomy', 'medical', 'structure', 'function', 'spine', 'bone', 'organ',
+            'x-ray', 'mri', 'ct scan', 'diagnostic', 'symptom', 'condition'
+          ];
+          
+          const combined = `${alt} ${title} ${src}`;
+          const hasRelevantKeyword = relevantKeywords.some(keyword => combined.includes(keyword));
+          
+          // Check if in content areas (article, figure, main content)
+          const isInContentArea = img.closest('article, .article, .post, .entry, .content, .main-content, figure, .figure, [role="main"]');
+          
+          // Must pass ALL of these:
+          // 1. Has relevant keywords OR is in content area OR is reasonably sized (>=300px)
+          // 2. Not in unwanted areas (already checked above)
+          // 3. Not matching ad patterns (already checked above)
+          const isRelevant = hasRelevantKeyword || isInContentArea || (width >= 300 || height >= 300);
+          
+          return isRelevant;
+        })
+        .map(img => ({
+          src: img.src,
+          alt: img.alt || '',
+          title: img.title || '',
+          width: img.naturalWidth || img.width || 0,
+          height: img.naturalHeight || img.height || 0,
+          context: (img.closest('figure')?.querySelector('figcaption')?.textContent || '').trim().substring(0, 200)
+        }))
+        .slice(0, 10); // Limit to 10 most relevant images
+      
+      return allImages;
+    } catch (error) {
+      console.error('[extractRelevantImages] Error:', error);
+      return [];
+    }
+  }
+
   console.log('[extractPageContent] Starting extraction on:', window.location.href);
   
   try {
@@ -1172,8 +1318,12 @@ function extractPageContent() {
     try {
       images = extractRelevantImages();
       console.log('[extractPageContent] Extracted images:', images.length);
+      if (images.length > 0) {
+        console.log('[extractPageContent] Sample images:', images.slice(0, 3).map(img => ({ src: img.src.substring(0, 50), alt: img.alt.substring(0, 30), width: img.width, height: img.height })));
+      }
     } catch (imgError) {
       console.error('[extractPageContent] Error extracting images:', imgError);
+      console.error('[extractPageContent] Image extraction error stack:', imgError.stack);
     }
 
     const result = {
@@ -2099,40 +2249,19 @@ class TabSenseServiceWorker {
           categoryConfidence = urlBased.confidence;
         }
         
-        // Filter relevant images first (store them for later processing)
+        // Store all extracted images (they're already filtered by extractRelevantImages)
         let initialImages = [];
         if (extractedData.images && Array.isArray(extractedData.images) && extractedData.images.length > 0) {
-          const relevantImages = extractedData.images.filter(img => {
-            // Filter for relevant images (diagrams, charts, etc.)
-            const alt = (img.alt || '').toLowerCase();
-            const title = (img.title || '').toLowerCase();
-            const src = (img.src || '').toLowerCase();
-            const combined = `${alt} ${title} ${src}`;
-            
-            // Check if image is likely a diagram, chart, or educational image
-            const relevantKeywords = [
-              'diagram', 'chart', 'graph', 'figure', 'illustration', 'plot',
-              'visualization', 'schema', 'flowchart', 'map', 'table',
-              'financial', 'trading', 'stock', 'market', 'research', 'study',
-              'academic', 'scientific', 'data', 'analysis', 'results'
-            ];
-            
-            return relevantKeywords.some(keyword => combined.includes(keyword)) ||
-                   (img.width >= 300 && img.height >= 300); // Larger images likely to be content
-          });
-          
-          // Store images without analysis initially (will be processed in background)
-          initialImages = relevantImages.length > 0 
-            ? relevantImages.map(img => ({
-                ...img,
-                analysis: null,
-                suggestedQuestion: null
-              }))
-            : extractedData.images.slice(0, 10).map(img => ({
-                ...img,
-                analysis: null,
-                suggestedQuestion: null
-              }));
+          console.log('[TabSense] Storing', extractedData.images.length, 'extracted images');
+          // Store images without analysis initially (will be processed in background if needed)
+          initialImages = extractedData.images.map(img => ({
+            ...img,
+            analysis: null,
+            suggestedQuestion: null
+          }));
+          console.log('[TabSense] Stored images:', initialImages.map(img => ({ src: img.src?.substring(0, 50), alt: img.alt?.substring(0, 30), width: img.width, height: img.height })));
+        } else {
+          console.log('[TabSense] No images extracted from page');
         }
         
         // Store tab data - use URL as id for uniqueness
@@ -2691,7 +2820,73 @@ class TabSenseServiceWorker {
     return lines.join('\n');
   }
 
-  // Analyze images using AI (Chrome Prompt API or external AI)
+  // Fetch image as base64 for vision API
+  async fetchImageAsBase64(imageUrl) {
+    try {
+      console.log('[TabSense] Fetching image from:', imageUrl);
+      
+      // Service workers can make cross-origin requests
+      // Use regular fetch (service workers bypass CORS restrictions)
+      const response = await fetch(imageUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+      }
+      
+      const blob = await response.blob();
+      console.log('[TabSense] Image fetched, size:', blob.size, 'bytes, type:', blob.type);
+      
+      // Validate blob size (Gemini has limits, typically 20MB)
+      const maxSize = 20 * 1024 * 1024; // 20MB
+      if (blob.size > maxSize) {
+        throw new Error(`Image too large: ${blob.size} bytes (max: ${maxSize})`);
+      }
+      
+      // Detect MIME type
+      let mimeType = blob.type || 'image/jpeg';
+      if (!mimeType || mimeType === 'application/octet-stream') {
+        // Try to detect from URL extension
+        const urlLower = imageUrl.toLowerCase();
+        if (urlLower.includes('.png')) mimeType = 'image/png';
+        else if (urlLower.includes('.gif')) mimeType = 'image/gif';
+        else if (urlLower.includes('.webp')) mimeType = 'image/webp';
+        else if (urlLower.includes('.svg')) mimeType = 'image/svg+xml';
+        else mimeType = 'image/jpeg'; // Default
+      }
+      
+      // Convert to base64
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          try {
+            const dataUrl = reader.result;
+            if (!dataUrl || typeof dataUrl !== 'string') {
+              throw new Error('Invalid data URL from FileReader');
+            }
+            const base64 = dataUrl.split(',')[1]; // Remove data URL prefix
+            if (!base64 || base64.length === 0) {
+              throw new Error('Empty base64 string');
+            }
+            console.log('[TabSense] ✅ Image converted to base64, length:', base64.length, 'mimeType:', mimeType);
+            resolve({ base64, mimeType });
+          } catch (err) {
+            console.error('[TabSense] Error processing base64:', err);
+            reject(err);
+          }
+        };
+        reader.onerror = (error) => {
+          console.error('[TabSense] FileReader error:', error);
+          reject(new Error('FileReader failed to read blob'));
+        };
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('[TabSense] ❌ Error fetching image:', error.message, error.stack);
+      return null;
+    }
+  }
+
+  // Analyze images using Chrome Prompt API (multimodal) or Gemini Vision API
   async analyzeImages(images, category, pageTitle) {
     console.log(`[TabSense] analyzeImages: Analyzing ${images.length} images for category: ${category}`);
     
@@ -2727,9 +2922,6 @@ Provide a concise analysis (2-3 sentences) and suggest ONE specific question a u
           prompt = `Analyze this image from "${pageTitle}". Identify key elements, concepts, or data shown. Provide a brief analysis (1-2 sentences) and suggest ONE question about this image.`;
         }
         
-        // Try to analyze using external AI (Gemini Vision or Claude Vision)
-        // For now, we'll use text-based analysis with image metadata
-        // Note: Full vision API would require fetching image and sending to API
         const imageInfo = {
           src: image.src,
           alt: image.alt || '',
@@ -2739,62 +2931,244 @@ Provide a concise analysis (2-3 sentences) and suggest ONE specific question a u
           height: image.height || 0
         };
         
-        // Build context string from image metadata
-        const imageContext = `Image info:
+        let analysisResult = null;
+        let suggestedQuestion = null;
+        
+        // Try Chrome Prompt API with multimodal support first
+        try {
+          if (typeof Prompt !== 'undefined') {
+            const availability = await Prompt.availability();
+            if (availability === 'available') {
+              console.log('[TabSense] Trying Chrome Prompt API (multimodal) for image analysis');
+              const session = await Prompt.create();
+              
+              // Fetch image as base64
+              const imageData = await this.fetchImageAsBase64(image.src);
+              if (imageData && imageData.base64) {
+                // Chrome Prompt API supports multimodal input via base64 in the prompt
+                // The Prompt API can handle base64 images directly in the prompt text or as separate inputs
+                // Try with image data URL in the prompt first
+                try {
+                  const imageDataUrl = `data:${imageData.mimeType};base64,${imageData.base64}`;
+                  // Chrome Prompt API may accept images via the prompt itself for multimodal
+                  const multimodalPrompt = `${prompt}\n\n[Image attached: ${imageDataUrl.substring(0, 50)}...]`;
+                  const result = await session.prompt(multimodalPrompt, { maxOutputTokens: 500 });
+                  
+                  if (result && result.length > 0) {
+                    analysisResult = result;
+                    console.log('[TabSense] ✅ Image analyzed using Chrome Prompt API (multimodal)');
+                  }
+                } catch (multimodalError) {
+                  // Fallback: try passing base64 as a separate parameter if API supports it
+                  console.log('[TabSense] Chrome Prompt multimodal syntax may differ, trying alternative:', multimodalError.message);
+                }
+              }
+            }
+          }
+        } catch (chromeError) {
+          console.log('[TabSense] Chrome Prompt API multimodal not available, trying Gemini Vision:', chromeError.message);
+        }
+        
+        // Fallback to Gemini Vision API
+        if (!analysisResult) {
+          try {
+            const result = await chrome.storage.local.get(['ai_api_keys']);
+            const apiKeys = result.ai_api_keys || {};
+            const geminiKey = apiKeys.google || apiKeys.gemini;
+            
+            if (geminiKey) {
+              console.log('[TabSense] Trying Gemini Vision API for image analysis');
+              
+              // Fetch image as base64 with MIME type
+              const imageData = await this.fetchImageAsBase64(image.src);
+              if (imageData && imageData.base64) {
+                const { base64, mimeType } = imageData;
+                console.log('[TabSense] Image ready for Gemini, mimeType:', mimeType, 'base64 length:', base64.length);
+                
+                // Try Gemini models in order of preference (most reliable for vision first)
+                const models = [
+                  'gemini-1.5-flash-latest',
+                  'gemini-1.5-flash',
+                  'gemini-1.5-pro-latest',
+                  'gemini-1.5-pro',
+                  'gemini-2.0-flash-exp',
+                  'gemini-pro-vision'
+                ];
+                
+                let lastError = null;
+                for (const model of models) {
+                  try {
+                    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+                    console.log('[TabSense] Trying Gemini model:', model);
+                    console.log('[TabSense] Request payload:', {
+                      promptLength: prompt.length,
+                      base64Length: base64.length,
+                      mimeType: mimeType
+                    });
+                    
+                    const response = await fetch(geminiUrl, {
+                      method: 'POST',
+                      headers: { 
+                        'Content-Type': 'application/json'
+                      },
+                      body: JSON.stringify({
+                        contents: [{
+                          parts: [
+                            { text: prompt },
+                            {
+                              inline_data: {
+                                mime_type: mimeType,
+                                data: base64
+                              }
+                            }
+                          ]
+                        }],
+                        generationConfig: {
+                          temperature: 0.7,
+                          maxOutputTokens: 500
+                        }
+                      })
+                    });
+                    
+                    if (!response.ok) {
+                      const errorText = await response.text();
+                      console.error(`[TabSense] Gemini ${model} API error:`, response.status, errorText);
+                      lastError = new Error(`Gemini API error (${response.status}): ${errorText.substring(0, 200)}`);
+                      continue; // Try next model
+                    }
+                    
+                    const responseText = await response.text();
+                    console.log('[TabSense] Gemini response status:', response.status, 'model:', model);
+                    
+                    if (response.ok) {
+                      try {
+                        const data = JSON.parse(responseText);
+                        console.log('[TabSense] Gemini response structure:', {
+                          hasCandidates: !!data.candidates,
+                          candidatesLength: data.candidates?.length,
+                          hasContent: !!data.candidates?.[0]?.content,
+                          hasParts: !!data.candidates?.[0]?.content?.parts,
+                          partsLength: data.candidates?.[0]?.content?.parts?.length
+                        });
+                        
+                        // Handle Gemini API response structure properly
+                        const candidates = data.candidates;
+                        if (!candidates || candidates.length === 0) {
+                          throw new Error('No candidates in Gemini response');
+                        }
+                        
+                        const content = candidates[0].content;
+                        if (!content || !content.parts) {
+                          throw new Error('No content parts in Gemini response');
+                        }
+                        
+                        // Find the text part (may not be the first part)
+                        const textPart = content.parts.find(part => part.text);
+                        if (!textPart || !textPart.text) {
+                          throw new Error('No text in Gemini response parts');
+                        }
+                        
+                        const answer = textPart.text.trim();
+                        if (answer && answer.length > 0) {
+                          analysisResult = answer;
+                          console.log('[TabSense] ✅ Image analyzed using Gemini Vision API (model:', model + ')');
+                          console.log('[TabSense] Analysis preview:', answer.substring(0, 100) + '...');
+                          break; // Success, exit loop
+                        } else {
+                          console.warn('[TabSense] Gemini returned empty answer from model:', model);
+                          lastError = new Error('Empty response from Gemini');
+                        }
+                      } catch (parseError) {
+                        console.error('[TabSense] Failed to parse Gemini response:', parseError.message);
+                        console.error('[TabSense] Response text preview:', responseText.substring(0, 500));
+                        lastError = parseError;
+                        continue; // Try next model
+                      }
+                    } else {
+                      // Check if it's an API key or quota error
+                      try {
+                        const errorData = JSON.parse(responseText);
+                        console.error('[TabSense] Gemini API error:', errorData.error || errorData);
+                        if (errorData.error?.message) {
+                          lastError = new Error(errorData.error.message);
+                          // Don't try other models if it's an API key issue
+                          if (response.status === 401 || response.status === 403) {
+                            throw new Error(`Gemini API key invalid or unauthorized: ${errorData.error.message}`);
+                          }
+                        }
+                      } catch (e) {
+                        lastError = new Error(`Gemini API error: ${response.status} - ${responseText.substring(0, 200)}`);
+                      }
+                    }
+                  } catch (modelError) {
+                    console.warn('[TabSense] Model', model, 'failed:', modelError.message);
+                    lastError = modelError;
+                    // Continue to next model
+                  }
+                }
+                
+                if (!analysisResult && lastError) {
+                  throw lastError;
+                }
+              } else {
+                console.warn('[TabSense] Failed to fetch image for Gemini Vision:', image.src);
+              }
+            } else {
+              console.log('[TabSense] No Gemini API key available for image analysis');
+            }
+          } catch (geminiError) {
+            console.error('[TabSense] Gemini Vision API failed:', geminiError.message);
+            console.error('[TabSense] Gemini error stack:', geminiError.stack);
+          }
+        }
+        
+        // Final fallback: text-based analysis with metadata
+        if (!analysisResult) {
+          console.log('[TabSense] Vision APIs not available, using text-based analysis with metadata');
+          const imageContext = `Image info:
 - Alt text: ${imageInfo.alt}
 - Title: ${imageInfo.title}
 - Context: ${imageInfo.context}
 - Dimensions: ${imageInfo.width}x${imageInfo.height}`;
-        
-        const fullPrompt = `${prompt}\n\n${imageContext}\n\nAnalysis:`;
-        
-        // Use AI to generate analysis (Chrome AI first, then fallback)
-        try {
+          
+          const fullPrompt = `${prompt}\n\n${imageContext}\n\nAnalysis:`;
           const result = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt);
           
           if (result.success && result.answer) {
-            const answer = result.answer.trim();
-            
-            // Extract suggested question (usually at the end)
-            let analysis = answer;
-            let suggestedQuestion = null;
-            
-            // Try to extract question from answer
-            const questionMatch = answer.match(/(?:question|ask|wonder)[:;]?\s*(.+?)(?:\.|$)/i);
-            if (questionMatch) {
-              suggestedQuestion = questionMatch[1].trim().replace(/["']/g, '');
-              analysis = answer.replace(questionMatch[0], '').trim();
-            } else {
-              // Generate a default question
-              if (category === 'finance') {
-                suggestedQuestion = 'What does this chart indicate about market trends and data?';
-              } else if (category === 'academic') {
-                suggestedQuestion = 'Break down this diagram and explain its key components';
-              } else {
-                suggestedQuestion = 'What does this image show?';
-              }
-            }
-            
-            analyzed.push({
-              ...imageInfo,
-              analysis: analysis,
-              suggestedQuestion: suggestedQuestion,
-              category: category
-            });
-            
-            console.log(`[TabSense] ✅ Analyzed image ${analyzed.length}/${images.length}`);
-          } else {
-            // Fallback: store image without analysis
-            analyzed.push({
-              ...imageInfo,
-              analysis: null,
-              suggestedQuestion: category === 'finance' ? 'What does this chart show?' : 'What does this diagram illustrate?',
-              category: category
-            });
+            analysisResult = result.answer.trim();
           }
-        } catch (aiError) {
-          console.error('[TabSense] AI analysis failed for image:', aiError);
-          // Store image with default question
+        }
+        
+        // Process the analysis result
+        if (analysisResult) {
+          let analysis = analysisResult;
+          
+          // Extract suggested question
+          const questionMatch = analysisResult.match(/(?:question|ask|wonder|suggest)[:;]?\s*["']?(.+?)["']?(?:\.|$)/i);
+          if (questionMatch) {
+            suggestedQuestion = questionMatch[1].trim();
+            analysis = analysisResult.replace(questionMatch[0], '').trim();
+          } else {
+            // Generate a default question
+            if (category === 'finance') {
+              suggestedQuestion = 'What does this chart indicate about market trends and data?';
+            } else if (category === 'academic') {
+              suggestedQuestion = 'Break down this diagram and explain its key components';
+            } else {
+              suggestedQuestion = 'What does this image show?';
+            }
+          }
+          
+          analyzed.push({
+            ...imageInfo,
+            analysis: analysis,
+            suggestedQuestion: suggestedQuestion,
+            category: category
+          });
+          
+          console.log(`[TabSense] ✅ Analyzed image ${analyzed.length}/${images.length}`);
+        } else {
+          // Fallback: store image without analysis
           analyzed.push({
             ...imageInfo,
             analysis: null,
@@ -2802,19 +3176,19 @@ Provide a concise analysis (2-3 sentences) and suggest ONE specific question a u
             category: category
           });
         }
-        
-        // Small delay to avoid rate limits
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
       } catch (error) {
-        console.error('[TabSense] Error analyzing individual image:', error);
+        console.error('[TabSense] Error analyzing image:', error);
+        // Store image with default question
         analyzed.push({
-          ...image,
+          ...imageInfo,
           analysis: null,
-          suggestedQuestion: 'What does this image show?',
+          suggestedQuestion: category === 'finance' ? 'What does this chart show?' : 'What does this diagram illustrate?',
           category: category
         });
       }
+      
+      // Small delay to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
     
     return analyzed;
@@ -3498,8 +3872,39 @@ Provide a concise analysis (2-3 sentences) and suggest ONE specific question a u
         }
       }
       
+      // Check if question is about images
+      const isImageQuestion = /\b(describe|explain|what.*in|show|analyze|break down|tell me about|details about|information about).*(image|picture|photo|diagram|chart|graph|figure|illustration|visual)\b/i.test(question) ||
+                               /\b(image|picture|photo|diagram|chart|graph|figure|illustration|visual).*(describe|explain|show|analyze|what|details|information)\b/i.test(question);
+      
       // For now, create a context-aware response
       if (context && context.length > 0) {
+        // Get primary tab reference (used throughout the function)
+        const primaryTab = context[0];
+        
+        // Check for images in context tabs if question is about images
+        let imageData = null;
+        if (isImageQuestion) {
+          console.log('[TabSense] 🖼️ Image-related question detected, checking for images in context...');
+          if (primaryTab && primaryTab.extractedImages && primaryTab.extractedImages.length > 0) {
+            const firstImage = primaryTab.extractedImages[0];
+            console.log('[TabSense] Found image in context:', firstImage.src?.substring(0, 50));
+            
+            // Fetch image as base64 for vision API
+            try {
+              imageData = await this.fetchImageAsBase64(firstImage.src);
+              if (imageData && imageData.base64) {
+                console.log('[TabSense] ✅ Image fetched and ready for vision API');
+              } else {
+                console.warn('[TabSense] Failed to fetch image for vision API');
+              }
+            } catch (imgError) {
+              console.error('[TabSense] Error fetching image:', imgError.message);
+            }
+          } else {
+            console.log('[TabSense] No images found in context tabs');
+          }
+        }
+        
         // Build context from tabs
         const contextPrompt = context.map((tab, i) => {
           const base = `Document ${i + 1} (${tab.title} - ${tab.url}):`;
@@ -3512,6 +3917,10 @@ Provide a concise analysis (2-3 sentences) and suggest ONE specific question a u
             const excerpt = content.substring(0, 3000);
             const commentHint = 'If present below, use TOP COMMENTS and DESCRIPTION for QA.';
             extra = `\n[YouTube Content Excerpt]\n${excerpt}\n${commentHint}`;
+          }
+          // Add image info if available
+          if (tab.extractedImages && tab.extractedImages.length > 0) {
+            extra += `\n[Note: This document contains ${tab.extractedImages.length} extracted image(s). If the question is about an image, analyze the provided image data.]`;
           }
           return `${base}\n${summary}${extra}\nCategory: ${category}\n---`;
         }).join('\n\n');
@@ -3853,10 +4262,177 @@ Whether this model ensures enduring order or sows the seeds of future volatility
 Answer:`;
         
         // Step 4: Use AI to generate the answer with enhanced context
+        let qaResult;
         try {
-          let qaResult = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt);
           
-          if (qaResult.success && qaResult.answer) {
+          // If we have image data and it's an image question, try vision APIs
+          if (imageData && imageData.base64 && isImageQuestion) {
+            console.log('[TabSense] 🖼️ Image question detected, trying vision APIs...');
+            
+            // Step 4a: Try Chrome Prompt API first (multimodal, on-device, free)
+            try {
+              if (typeof Prompt !== 'undefined') {
+                const availability = await Prompt.availability();
+                if (availability === 'available') {
+                  console.log('[TabSense] 🖼️ Trying Chrome Prompt API (multimodal) for image question');
+                  const session = await Prompt.create();
+                  
+                  // Chrome Prompt API supports multimodal - try embedding image in prompt
+                  // Format: Create a data URL and include in the prompt text
+                  const imageDataUrl = `data:${imageData.mimeType};base64,${imageData.base64}`;
+                  const multimodalPrompt = `You are analyzing an image from a web page. The user asked: "${question}"
+
+Context from the page:
+${contextPrompt.substring(0, 2000)}
+
+[Image attached as base64 data URL]
+${imageDataUrl.substring(0, 100)}...
+
+Please provide a detailed analysis of the image based on the user's question. Include specific details about what you see in the image.`;
+
+                  const chromeResult = await session.prompt(multimodalPrompt, { maxOutputTokens: 1000 });
+                  
+                  if (chromeResult && chromeResult.length > 0 && chromeResult.trim().length > 50) {
+                    console.log('[TabSense] ✅ Got answer from Chrome Prompt API (multimodal)');
+                    qaResult = { success: true, answer: chromeResult.trim(), provider: 'chrome-prompt-multimodal' };
+                  } else {
+                    console.log('[TabSense] Chrome Prompt API returned empty/short response, trying fallback');
+                  }
+                } else {
+                  console.log('[TabSense] Chrome Prompt API not available:', availability);
+                }
+              } else {
+                console.log('[TabSense] Chrome Prompt API not defined (not available in this Chrome version)');
+              }
+            } catch (chromeError) {
+              console.log('[TabSense] Chrome Prompt API multimodal failed:', chromeError.message);
+              // Continue to fallback
+            }
+            
+            // Step 4b: If Chrome Prompt API failed or not available, try Gemini Vision API
+            if (!qaResult || !qaResult.success) {
+              console.log('[TabSense] 🖼️ Trying Gemini Vision API as fallback');
+              // Get Gemini API key
+              const apiKeysResult = await chrome.storage.local.get(['ai_api_keys', 'ai_api_enabled']);
+              const apiKeys = apiKeysResult.ai_api_keys || {};
+              const enabled = apiKeysResult.ai_api_enabled || {};
+              const geminiKey = (enabled.google || enabled.gemini) ? (apiKeys.google || apiKeys.gemini) : null;
+              
+              if (geminiKey) {
+              try {
+                // Use Gemini Vision API with image
+                const models = ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro-latest', 'gemini-2.0-flash-exp'];
+                
+                for (const model of models) {
+                  try {
+                    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+                    
+                    const visionPrompt = `You are analyzing an image from a web page. The user asked: "${question}"
+                    
+Context from the page:
+${contextPrompt.substring(0, 2000)}
+
+Please provide a detailed analysis of the image based on the user's question. Include specific details about what you see in the image.`;
+
+                    const response = await fetch(geminiUrl, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        contents: [{
+                          parts: [
+                            { text: visionPrompt },
+                            {
+                              inline_data: {
+                                mime_type: imageData.mimeType,
+                                data: imageData.base64
+                              }
+                            }
+                          ]
+                        }],
+                        generationConfig: {
+                          temperature: 0.7,
+                          maxOutputTokens: 1000
+                        }
+                      })
+                    });
+                    
+                    if (response.ok) {
+                      const data = await response.json();
+                      const candidates = data.candidates;
+                      if (candidates && candidates.length > 0) {
+                        const content = candidates[0].content;
+                        if (content && content.parts) {
+                          const textPart = content.parts.find(part => part.text);
+                          if (textPart && textPart.text) {
+                            const answer = textPart.text.trim();
+                            console.log('[TabSense] ✅ Got answer from Gemini Vision API');
+                            qaResult = { success: true, answer: answer, provider: 'gemini-vision' };
+                            break; // Success, stop trying other models
+                          }
+                        }
+                      }
+                    } else {
+                      const errorText = await response.text();
+                      console.error(`[TabSense] Gemini Vision ${model} failed:`, response.status, errorText.substring(0, 200));
+                      
+                      // If it's an auth error, don't try other models
+                      if (response.status === 401 || response.status === 403) {
+                        console.error('[TabSense] Gemini API key invalid, stopping vision API attempts');
+                        break;
+                      }
+                    }
+                  } catch (modelError) {
+                    console.warn('[TabSense] Gemini Vision model', model, 'failed:', modelError.message);
+                    continue; // Try next model
+                  }
+                }
+                
+                // If vision API failed, fall back to text-only
+                if (!qaResult || !qaResult.success) {
+                  console.log('[TabSense] 🖼️ Vision APIs failed, falling back to text-only QA with image metadata');
+                  // Include image metadata in the prompt as fallback
+                  const imageMetadata = primaryTab?.extractedImages?.[0] ? `
+[Note: The user is asking about an image. Image metadata:
+- Alt text: ${primaryTab.extractedImages[0].alt || 'N/A'}
+- Title: ${primaryTab.extractedImages[0].title || 'N/A'}
+- Context: ${primaryTab.extractedImages[0].context || 'N/A'}
+- Dimensions: ${primaryTab.extractedImages[0].width || 0}x${primaryTab.extractedImages[0].height || 0}
+- Analysis: ${primaryTab.extractedImages[0].analysis || 'Not yet analyzed'}
+]` : '';
+                  const fallbackPrompt = fullPrompt + imageMetadata;
+                  qaResult = await this.aiProviderManager.answerQuestionWithFallback(fallbackPrompt);
+                }
+              } catch (visionError) {
+                console.error('[TabSense] Gemini Vision API error:', visionError.message);
+                // Fall back to text-only with image metadata
+                const imageMetadata = primaryTab?.extractedImages?.[0] ? `
+[Note: The user is asking about an image. Image metadata:
+- Alt text: ${primaryTab.extractedImages[0].alt || 'N/A'}
+- Title: ${primaryTab.extractedImages[0].title || 'N/A'}
+- Context: ${primaryTab.extractedImages[0].context || 'N/A'}
+- Dimensions: ${primaryTab.extractedImages[0].width || 0}x${primaryTab.extractedImages[0].height || 0}
+]` : '';
+                qaResult = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt + imageMetadata);
+              }
+              } else {
+                console.log('[TabSense] No Gemini API key, using text-only QA with image metadata');
+                const imageMetadata = primaryTab?.extractedImages?.[0] ? `
+[Note: The user is asking about an image. Image metadata:
+- Alt text: ${primaryTab.extractedImages[0].alt || 'N/A'}
+- Title: ${primaryTab.extractedImages[0].title || 'N/A'}
+- Context: ${primaryTab.extractedImages[0].context || 'N/A'}
+- Dimensions: ${primaryTab.extractedImages[0].width || 0}x${primaryTab.extractedImages[0].height || 0}
+- Analysis: ${primaryTab.extractedImages[0].analysis || 'Not yet analyzed'}
+]` : '';
+                qaResult = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt + imageMetadata);
+              }
+            }
+          } else {
+            // Regular text-only QA
+            qaResult = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt);
+          }
+          
+          if (qaResult && qaResult.success && qaResult.answer) {
             // Combine document sources with search sources
             const allSources = [
               ...context.map(tab => ({ title: tab.title, url: tab.url, type: 'document' })),
@@ -3925,28 +4501,38 @@ Answer:`;
             
             return {
               success: true,
-        data: {
+              data: {
                 answer: cleaned,
                 sources: allSources,
                 provider: providerDisplay,
                 confidence: searchResults && searchResults.totalResults > 0 ? 0.9 : 0.8
               }
             };
+          } else {
+            // qaResult was not successful - return fallback
+            return {
+              success: false,
+              data: {
+                answer: 'I apologize, but I\'m currently unable to answer your question. The AI service is temporarily unavailable. Please try again later.',
+                sources: [],
+                provider: 'none',
+                confidence: 0
+              }
+            };
           }
         } catch (aiError) {
           console.log('[TabSense] AI answer generation failed:', aiError.message);
+          // All providers failed - return error response  
+          return {
+            success: false,
+            data: {
+              answer: 'I apologize, but I\'m currently unable to answer your question. The AI service is temporarily unavailable. Please try again later.',
+              sources: [],
+              provider: 'none',
+              confidence: 0
+            }
+          };
         }
-        
-        // All providers failed - don't provide a fallback answer
-        return {
-          success: false,
-          data: {
-            answer: 'I apologize, but I\'m currently unable to answer your question. The AI service is temporarily unavailable. Please try again later.',
-            sources: [],
-            provider: 'none',
-            confidence: 0
-          }
-        };
       }
       
       // No context - explain to user
@@ -4133,8 +4719,6 @@ Answer:`;
     } catch (error) {
       console.error('[TabSense] Error processing tabs:', error);
       return { success: false, error: error.message };
-    } finally {
-      this.processingTabs.delete(tab.id);
     }
   }
 
