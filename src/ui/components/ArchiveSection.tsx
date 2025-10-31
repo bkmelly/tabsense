@@ -106,8 +106,8 @@ const ArchiveSection: React.FC<ArchiveSectionProps> = ({
           {conversations.length === 0 ? (
             <EmptyState type="no-conversations" />
           ) : (
-            <div className="space-y-2">
-              {conversations.map((conversation) => (
+          <div className="space-y-2">
+            {conversations.map((conversation) => (
               <div
                 key={conversation.id}
                 className="relative group z-0"
@@ -143,20 +143,20 @@ const ArchiveSection: React.FC<ArchiveSectionProps> = ({
                 {/* Conditional kebab menu - always visible for active, hover for others */}
                 {(activeConversationId === conversation.id || hoveredCard === conversation.id || menuOpen === conversation.id) && (
                   <div className="absolute top-2 right-2 z-20" data-menu-button>
-                    <button
+                      <button
                       ref={(el) => {
                         menuButtonRefs.current[conversation.id] = el;
                       }}
-                      onClick={(e) => {
-                        e.stopPropagation();
+                        onClick={(e) => {
+                          e.stopPropagation();
                         e.preventDefault();
-                        setMenuOpen(menuOpen === conversation.id ? null : conversation.id);
-                      }}
+                          setMenuOpen(menuOpen === conversation.id ? null : conversation.id);
+                        }}
                       className="p-1 hover:bg-muted/50 rounded transition-colors bg-background/80 backdrop-blur-sm"
-                      title="More options"
-                    >
-                      <MoreVertical className="w-3 h-3 text-muted-foreground" />
-                    </button>
+                        title="More options"
+                      >
+                        <MoreVertical className="w-3 h-3 text-muted-foreground" />
+                      </button>
                   </div>
                 )}
               </div>
@@ -168,8 +168,8 @@ const ArchiveSection: React.FC<ArchiveSectionProps> = ({
       
       {/* Fixed position dropdown menu - renders outside scrollable container */}
       {menuOpen && menuPosition && (
-        <>
-          <div 
+                        <>
+                          <div 
             className="fixed inset-0 z-40" 
             onMouseDown={(e) => {
               // Only close if clicking directly on overlay, not if event bubbled from dropdown
@@ -177,7 +177,7 @@ const ArchiveSection: React.FC<ArchiveSectionProps> = ({
                 setMenuOpen(null);
               }
             }}
-          />
+                          />
           <div 
             ref={dropdownRef}
             data-dropdown-id={menuOpen}
@@ -195,41 +195,41 @@ const ArchiveSection: React.FC<ArchiveSectionProps> = ({
               e.stopPropagation();
             }}
           >
-            <div className="py-1">
-              <button
+                            <div className="py-1">
+                              <button
                 onMouseDown={(e) => {
                   e.stopPropagation();
                 }}
-                onClick={(e) => {
-                  e.stopPropagation();
+                                onClick={(e) => {
+                                  e.stopPropagation();
                   e.preventDefault();
                   onShareConversation(menuOpen);
-                  setMenuOpen(null);
-                }}
-                className="w-full px-3 py-2 text-xs text-left hover:bg-muted/50 flex items-center gap-2"
-              >
-                <Share2 className="h-3 w-3" />
-                Share
-              </button>
-              <button
+                                  setMenuOpen(null);
+                                }}
+                                className="w-full px-3 py-2 text-xs text-left hover:bg-muted/50 flex items-center gap-2"
+                              >
+                                <Share2 className="h-3 w-3" />
+                                Share
+                              </button>
+                              <button
                 onMouseDown={(e) => {
                   e.stopPropagation();
                 }}
-                onClick={(e) => {
-                  e.stopPropagation();
+                                onClick={(e) => {
+                                  e.stopPropagation();
                   e.preventDefault();
                   onDeleteConversation(menuOpen);
-                  setMenuOpen(null);
-                }}
-                className="w-full px-3 py-2 text-xs text-left hover:bg-muted/50 flex items-center gap-2"
-              >
-                <Trash2 className="h-3 w-3" />
-                Delete
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+                                  setMenuOpen(null);
+                                }}
+                                className="w-full px-3 py-2 text-xs text-left hover:bg-muted/50 flex items-center gap-2"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
     </div>
   );
 };

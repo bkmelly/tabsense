@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Settings, Archive, RefreshCw } from 'lucide-react';
+import { Sparkles, Settings, Archive } from 'lucide-react';
 
 interface HeaderProps {
   title?: string;
@@ -8,7 +8,6 @@ interface HeaderProps {
   showHistory?: boolean;
   onSettingsClick?: () => void;
   onHistoryClick?: () => void;
-  onRefreshClick?: () => void;
   serviceWorkerStatus?: 'connecting' | 'connected' | 'error';
   settingsComponent?: React.ReactNode;
 }
@@ -20,7 +19,6 @@ const Header: React.FC<HeaderProps> = ({
   showHistory = true,
   onSettingsClick,
   onHistoryClick,
-  onRefreshClick,
   serviceWorkerStatus = 'connecting',
   settingsComponent
 }) => {
@@ -42,23 +40,13 @@ const Header: React.FC<HeaderProps> = ({
         </div>
         
         <div className="flex items-center gap-2">
-          {showHistory && (
+          {showHistory && onHistoryClick && (
             <button
               onClick={onHistoryClick}
               className="p-2 rounded-lg hover:bg-white/10 transition-colors"
               title="My Conversations"
             >
               <Archive className="w-4 h-4 text-white/70" />
-            </button>
-          )}
-          
-          {onRefreshClick && (
-            <button
-              onClick={onRefreshClick}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-              title="Refresh & Process All Tabs"
-            >
-              <RefreshCw className="w-4 h-4 text-white/70" />
             </button>
           )}
           

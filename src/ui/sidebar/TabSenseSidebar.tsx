@@ -3,7 +3,7 @@ import {
   Sparkles, Download, Send, X, Loader2, CheckCircle2, ExternalLink, ChevronDown, ChevronLeft, ChevronRight,
   Globe, BookOpen, Video, MessageSquare, Newspaper, Zap, Flame, Brain, Lightbulb, 
   Smile, Frown, Meh, Star, HelpCircle, ThumbsUp, ThumbsDown, Minus, MoreVertical, Share2, 
-  Copy, Trash2, Settings, History, Eye, EyeOff, Archive, BarChart3, Scale, FileText
+  Copy, Trash2, Settings, History, Eye, EyeOff, Archive, BarChart3, Scale, FileText, TrendingUp
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -75,7 +75,7 @@ interface TabSummary {
   summary: string;
   keyPoints: string[];
   analyzing?: boolean;
-  category: "youtube" | "news" | "documentation" | "forum" | "blog" | "ecommerce" | "academic" | "entertainment" | "generic";
+  category: "youtube" | "news" | "documentation" | "forum" | "blog" | "ecommerce" | "academic" | "finance" | "entertainment" | "generic";
   
   // Enhanced categorization metadata
   categoryLabel?: string;
@@ -144,6 +144,19 @@ interface TabSummary {
     extractedAt?: string;
     tabId?: number;
   };
+  
+  // Extracted images for analysis
+  extractedImages?: Array<{
+    src: string;
+    alt?: string;
+    title?: string;
+    width?: number;
+    height?: number;
+    context?: string;
+    analysis?: string | null;
+    suggestedQuestion?: string | null;
+    category?: string;
+  }>;
 }
 
 const categories = [
@@ -155,6 +168,7 @@ const categories = [
   { id: "blog", label: "Blogs", icon: FileText },
   { id: "ecommerce", label: "Shopping", icon: BarChart3 },
   { id: "academic", label: "Academic", icon: Scale },
+  { id: "finance", label: "Finance", icon: TrendingUp },
   { id: "entertainment", label: "Entertainment", icon: Sparkles },
 ];
 
@@ -168,6 +182,11 @@ const TabSenseSidebar: React.FC = () => {
   const [isLoadingTabs, setIsLoadingTabs] = useState(false);
   const [serviceWorkerStatus, setServiceWorkerStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [lastLoadTime, setLastLoadTime] = useState<number>(0);
+  const [exportPrompt, setExportPrompt] = useState<{ id: string; url: string; title: string; count: number } | null>(null);
+  const [openExportFor, setOpenExportFor] = useState<string | null>(null);
+  const [reportPrompt, setReportPrompt] = useState<{ id?: string; url?: string; title?: string } | null>(null);
+  const [googleSheetsEnabled, setGoogleSheetsEnabled] = useState<boolean>(false);
+  const [googleDocsEnabled, setGoogleDocsEnabled] = useState<boolean>(false);
   
   // Core Tab Data State
   const [tabs, setTabs] = useState<TabSummary[]>([]);
@@ -204,10 +223,21 @@ const TabSenseSidebar: React.FC = () => {
   const [summaryMessages, setSummaryMessages] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>>([]);
   const [summaryShowSuggestions, setSummaryShowSuggestions] = useState(true);
   const [summaryIsMenuOpen, setSummaryIsMenuOpen] = useState(false);
+  const [showSummaryImages, setShowSummaryImages] = useState<boolean>(false);
   
   // Conversation History State
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [conversationHistory, setConversationHistory] = useState<Conversation[]>([]);
+
+  const fetchStoredTab = async (id?: string, url?: string) => {
+    try {
+      const result = await chrome.storage.local.get(['multi_tab_collection']);
+      const coll = result.multi_tab_collection || [];
+      return coll.find((t: any) => (id && t.id === id) || (url && t.url === url)) || null;
+    } catch {
+      return null;
+    }
+  };
 
   /**
    * Validate URL and clean it
@@ -311,19 +341,25 @@ const TabSenseSidebar: React.FC = () => {
               3000
             );
             
-            // Check Chrome AI availability on startup with delay
+            // Check Chrome AI availability and Google API enabled states on startup with delay
             setTimeout(async () => {
               try {
                 const availabilityResponse = await sendMessageToServiceWorker({ action: 'GET_API_ENABLED_STATES' });
-                if (availabilityResponse.success && availabilityResponse.data.chrome_ai_available === false) {
-                  showError(
-                    'Chrome AI Unavailable',
-                    'Your device is not compatible with Chrome Built-in AI. Please configure another AI provider in Settings.',
-                    8000
-                  );
+                if (availabilityResponse.success) {
+                  if (availabilityResponse.data.chrome_ai_available === false) {
+                    showError(
+                      'Chrome AI Unavailable',
+                      'Your device is not compatible with Chrome Built-in AI. Please configure another AI provider in Settings.',
+                      8000
+                    );
+                  }
+                  // Check Google API enabled states
+                  const otherEnabled = availabilityResponse.data.other_enabled || {};
+                  setGoogleSheetsEnabled(otherEnabled.googlesheets || false);
+                  setGoogleDocsEnabled(otherEnabled.googledocs || false);
                 }
               } catch (error) {
-                console.error('[TabSense] Error checking Chrome AI availability:', error);
+                console.error('[TabSense] Error checking API availability:', error);
               }
             }, 2000); // 2 second delay after service worker success message
           } else {
@@ -367,6 +403,37 @@ const TabSenseSidebar: React.FC = () => {
     const handleMessage = (message: any) => {
       console.log('[TabSense] Received message from service worker:', message);
       
+      // Handle image analysis updates
+      if (message.action === 'TAB_IMAGES_ANALYZED') {
+        console.log('[TabSense] Received image analysis update:', message.data);
+        const { tabId, extractedImages } = message.data || {};
+        
+        // Update the tab in local state if it exists
+        setTabs(prevTabs => {
+          const updatedTabs = prevTabs.map(tab => {
+            if (tab.id === tabId) {
+              return {
+                ...tab,
+                extractedImages: extractedImages || []
+              };
+            }
+            return tab;
+          });
+          return updatedTabs;
+        });
+        
+        // If this tab is currently selected for QA, update it
+        if (selectedSummaryForQA?.id === tabId) {
+          setSelectedSummaryForQA(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              extractedImages: extractedImages || []
+            };
+          });
+        }
+      }
+      
       if (message.action === 'TAB_PROCESSED' || message.action === 'TAB_AUTO_PROCESSED') {
         console.log('[TabSense] Received real-time tab update:', message.data);
         
@@ -377,6 +444,7 @@ const TabSenseSidebar: React.FC = () => {
           url: message.data.url,
           favicon: `https://www.google.com/s2/favicons?domain=${new URL(message.data.url).hostname}`,
           summary: message.data.summary || (message.data.processedData?.summary) || 'Content processed',
+          extractedImages: message.data.extractedImages || [], // Include extracted images
           keyPoints: (() => {
             const summary = message.data.summary || message.data.processedData?.summary || '';
             if (summary.includes('**')) {
@@ -454,6 +522,11 @@ const TabSenseSidebar: React.FC = () => {
           `${message.data.title} has been automatically processed`,
           3000
         );
+      } else if (message.action === 'PROMPT_EXPORT_COMMENTS') {
+        try {
+          const { title, count, id, url } = message.data || {};
+          setExportPrompt({ title, count, id, url });
+        } catch {}
       } else if (message.action === 'SERVICE_WORKER_ERROR') {
         console.error('[TabSense] Service worker error:', message.error);
         setServiceWorkerStatus('error');
@@ -667,7 +740,9 @@ const TabSenseSidebar: React.FC = () => {
                 contextSources: tab.contextSources,
                 extractedAt: tab.extractedAt,
                 tabId: tab.tabId
-              }
+              },
+              // Extracted images
+              extractedImages: tab.extractedImages || []
             };
           } catch (error) {
             console.error('[TabSense] Error processing tab:', tab.url, error);
@@ -820,15 +895,18 @@ const TabSenseSidebar: React.FC = () => {
   const generateMainSuggestedQuestions = async () => {
     try {
       const categoryTabs = filteredTabs;
-      const categorySummaries = categoryTabs
+      const items = categoryTabs
         .filter(tab => tab.summary && tab.summary.length > 0)
-        .map(tab => tab.summary)
-        .join('\n\n');
-      
-      if (categorySummaries.length > 0) {
+        .slice(0, 8) // cap to avoid too long prompt
+        .map(tab => {
+          const excerpt = tab.summary.replace(/\s+/g, ' ').slice(0, 400);
+          return `- Title: ${tab.title}\n  Category: ${tab.category}\n  Summary: ${excerpt}`;
+        });
+      const consolidated = items.join('\n\n');
+      if (consolidated.length > 0) {
         const questionsResponse = await sendMessageToServiceWorker({
           action: 'GENERATE_SUGGESTED_QUESTIONS',
-          summary: categorySummaries.substring(0, 2000), // Limit for API
+          summary: consolidated.substring(0, 2000), // Limit for API
           category: selectedCategory === 'all' ? 'generic' : selectedCategory,
           title: `${categories.find(c => c.id === selectedCategory)?.label || 'All'} Content Query`
         });
@@ -876,8 +954,8 @@ const TabSenseSidebar: React.FC = () => {
         setLoadingStage('Waiting for service worker...');
       }
       
-      // Get context from all processed tabs
-      const contextTabs = tabs.filter(tab => tab.summary && tab.summary.length > 0);
+      // Category-wide context: use filteredTabs for the active category
+      const contextTabs = filteredTabs.filter(tab => tab.summary && tab.summary.length > 0);
       const context = contextTabs.map(tab => ({
         title: tab.title,
         url: tab.url,
@@ -904,33 +982,30 @@ const TabSenseSidebar: React.FC = () => {
           error: false
         }];
       setMainMessages(finalMessages);
-      setLoadingStage(''); // Clear loading stage
+        setLoadingStage(''); // Clear loading stage
       
-      // Save to archive after first exchange with AI-generated title
+        // Save to archive after first exchange with AI-generated title
       if (updatedMessages.length === 1) {
-        try {
-          // Generate AI title based on category and question
-          const categoryLabel = categories.find(c => c.id === selectedCategory)?.label || 'All';
-          const titleResponse = await sendMessageToServiceWorker({
-            action: 'GENERATE_CONVERSATION_TITLE',
-            messages: [{
-              role: 'assistant',
-              content: `${categoryLabel} Content: ${mainQuestion}`
-            }]
-          });
-          
-          const conversationTitle = titleResponse.success && titleResponse.data?.title
-            ? titleResponse.data.title
-            : `Q&A: ${categoryLabel} - ${mainQuestion.substring(0, 30)}`;
-          
-          saveConversationToArchive(conversationTitle, finalMessages);
-        } catch (error) {
-          console.error('[TabSense] Error generating main conversation title:', error);
-          // Fallback
-          const fallbackTitle = `Main Q&A: ${mainQuestion.substring(0, 30)}...`;
-          saveConversationToArchive(fallbackTitle, finalMessages);
-      }
-      }
+          try {
+            const categoryLabel = categories.find(c => c.id === selectedCategory)?.label || 'All';
+            const topTitles = filteredTabs.slice(0,5).map(t => t.title).join(' | ');
+            const titleResponse = await sendMessageToServiceWorker({
+              action: 'GENERATE_CONVERSATION_TITLE',
+              messages: [{
+                role: 'assistant',
+                content: `${categoryLabel} Q&A — ${questionText}\nTabs: ${topTitles}`
+              }]
+            });
+            const computedTitle = titleResponse.success && titleResponse.data?.title
+              ? titleResponse.data.title
+              : `Q&A: ${categoryLabel} — ${questionText.substring(0, 40)}...`;
+            saveConversationToArchive(computedTitle, finalMessages);
+          } catch (error) {
+            console.error('[TabSense] Error generating main conversation title:', error);
+            const fallbackTitle = `Q&A: ${questionText.substring(0, 40)}...`;
+            saveConversationToArchive(fallbackTitle, finalMessages);
+          }
+        }
       } else {
         throw new Error(response.error || 'Failed to get AI response');
       }
@@ -1136,6 +1211,13 @@ const TabSenseSidebar: React.FC = () => {
   };
 
   const openSummaryQA = async (tab: TabSummary) => {
+    // Fetch fresh tab data to ensure we have extractedImages
+    const freshTab = await fetchStoredTab(tab.id, tab.url);
+    const tabWithImages = freshTab ? { ...tab, extractedImages: freshTab.extractedImages || tab.extractedImages || [] } : tab;
+    
+    console.log('[TabSense] Opening QA for tab:', tabWithImages.title);
+    console.log('[TabSense] Tab extractedImages:', tabWithImages.extractedImages?.length || 0, tabWithImages.extractedImages);
+    
     // First, check if conversation already exists BEFORE clearing state
     let existingConversation: Conversation | null = null;
     
@@ -1182,11 +1264,11 @@ const TabSenseSidebar: React.FC = () => {
       
       // Restore the FULL conversation state
       setSummaryMessages(existingConversation.messages || []);
-      setConversationTitle(existingConversation.title || tab.title);
+      setConversationTitle(existingConversation.title || tabWithImages.title);
       setActiveConversationId(existingConversation.id || null);
       
-      // Restore tab context
-      setSelectedSummaryForQA(tab);
+      // Restore tab context (with fresh images)
+      setSelectedSummaryForQA(tabWithImages);
       setIsSummaryQAExpanded(true);
       setSummaryQuestion("");
       setSummaryShowSuggestions(true);
@@ -1239,7 +1321,7 @@ const TabSenseSidebar: React.FC = () => {
     setSummaryMessages([]);
     
     // Use the AI-generated summary as-is - it already has proper formatting
-    let formattedContent = tab.summary;
+    let formattedContent = tabWithImages.summary;
     
     const summaryMessage = {
       role: "assistant" as const,
@@ -1251,13 +1333,13 @@ const TabSenseSidebar: React.FC = () => {
     setSummaryQuestion("");
     setSummaryShowSuggestions(true);
     setSummaryIsMenuOpen(false);
-    setSelectedSummaryForQA(tab);
+    setSelectedSummaryForQA(tabWithImages);
     setIsSummaryQAExpanded(true);
     
     // Generate AI title and save conversation immediately
-    let generatedTitle = tab.title; // Declare outside try block so it's accessible later
+    let generatedTitle = tabWithImages.title; // Declare outside try block so it's accessible later
     try {
-      console.log('[TabSense] Generating conversation title for tab:', tab.title);
+      console.log('[TabSense] Generating conversation title for tab:', tabWithImages.title);
       console.log('[TabSense] Summary content length:', formattedContent?.length || 0);
       
       const titleResponse = await sendMessageToServiceWorker({
@@ -1265,15 +1347,15 @@ const TabSenseSidebar: React.FC = () => {
         messages: [summaryMessage]
       });
       
-      console.log('[TabSense] Title response for tab:', tab.title, titleResponse);
+      console.log('[TabSense] Title response for tab:', tabWithImages.title, titleResponse);
       
-      generatedTitle = tab.title; // Fallback to tab title
+      generatedTitle = tabWithImages.title; // Fallback to tab title
       
       if (titleResponse && titleResponse.success && titleResponse.data?.title) {
         generatedTitle = titleResponse.data.title;
         console.log('[TabSense] ✅ Successfully generated title:', generatedTitle);
       } else {
-        console.log('[TabSense] ⚠️ Title generation failed or returned no title, using fallback:', tab.title);
+        console.log('[TabSense] ⚠️ Title generation failed or returned no title, using fallback:', tabWithImages.title);
       }
       
       // Update the conversation title in state
@@ -1282,11 +1364,11 @@ const TabSenseSidebar: React.FC = () => {
       // Create new conversation with FULL tab context for future Q&A
       const conversationWithMetadata = {
         ...summaryMessage,
-        tabId: tab.id,
-        tabUrl: tab.url,
-        tabTitle: tab.title,
-        tabSummary: tab.summary, // Store summary so Q&A works independently
-        tabCategory: tab.category // Store category for suggested questions
+        tabId: tabWithImages.id,
+        tabUrl: tabWithImages.url,
+        tabTitle: tabWithImages.title,
+        tabSummary: tabWithImages.summary, // Store summary so Q&A works independently
+        tabCategory: tabWithImages.category // Store category for suggested questions
       };
       
       // Save conversation first, then update with suggested questions if available
@@ -1301,7 +1383,7 @@ const TabSenseSidebar: React.FC = () => {
           });
           if (conversationsResponse.success) {
             const newConversation = conversationsResponse.data.conversations.find((conv: any) => 
-              conv.tabId === tab.id || (conv.title === generatedTitle && conv.messages?.length === 1)
+              conv.tabId === tabWithImages.id || (conv.title === generatedTitle && conv.messages?.length === 1)
             );
             if (newConversation) {
               await sendMessageToServiceWorker({
@@ -1318,22 +1400,22 @@ const TabSenseSidebar: React.FC = () => {
         }
       }
       
-      console.log('[TabSense] ✅ New conversation saved with title:', generatedTitle, 'for tab:', tab.id);
+      console.log('[TabSense] ✅ New conversation saved with title:', generatedTitle, 'for tab:', tabWithImages.id);
     } catch (error) {
       console.error('[TabSense] ❌ Error in openSummaryQA:', error);
       // Fallback title
-      const fallbackTitle = tab.title;
+      const fallbackTitle = tabWithImages.title;
       setConversationTitle(fallbackTitle);
       
       // Always save with fallback - include full context
       try {
         const conversationWithMetadata = {
           ...summaryMessage,
-          tabId: tab.id,
-          tabUrl: tab.url,
-          tabTitle: tab.title,
-          tabSummary: tab.summary,
-          tabCategory: tab.category
+          tabId: tabWithImages.id,
+          tabUrl: tabWithImages.url,
+          tabTitle: tabWithImages.title,
+          tabSummary: tabWithImages.summary,
+          tabCategory: tabWithImages.category
         };
         await saveConversationToArchive(fallbackTitle, [conversationWithMetadata]);
         console.log('[TabSense] Saved conversation with fallback title:', fallbackTitle);
@@ -1399,6 +1481,94 @@ const TabSenseSidebar: React.FC = () => {
     setSummaryIsMenuOpen(false);
   };
 
+  const handleExportChoice = async (choice: 'yes' | 'no' | 'later', data?: { id: string; url: string; title: string; count: number; format?: 'csv' | 'excel' }) => {
+    try {
+      if (!data) { setExportPrompt(null); return; }
+      if (choice === 'yes') {
+        // Default to CSV if format not specified
+        const format = data.format || 'csv';
+        chrome.runtime.sendMessage({ action: 'EXPORT_YOUTUBE_COMMENTS', id: data.id, tabUrl: data.url, format });
+      }
+      setExportPrompt(null);
+    } catch {
+      setExportPrompt(null);
+    }
+  };
+
+  const handleReportChoice = async (choice: 'yes' | 'no' | 'later', data?: { id?: string; url?: string; title?: string }) => {
+    try {
+      if (!data) { setReportPrompt(null); return; }
+      if (choice === 'yes') {
+        chrome.runtime.sendMessage({ action: 'EXPORT_REPORT', id: data.id, tabUrl: data.url });
+      }
+      setReportPrompt(null);
+    } catch {
+      setReportPrompt(null);
+    }
+  };
+
+  const handleExportToGoogleSheets = async (data?: { id: string; url: string; title: string; count: number }) => {
+    try {
+      if (!data) return;
+      const response = await sendMessageToServiceWorker({
+        action: 'EXPORT_TO_GOOGLE_SHEETS',
+        id: data.id,
+        tabUrl: data.url,
+        spreadsheetName: `${data.title} - Comments`
+      });
+      if (response.success) {
+        showSuccess('Exported to Google Sheets', `View your spreadsheet: ${response.data.url}`);
+        setExportPrompt(null);
+      } else {
+        showError('Export Failed', response.error || 'Could not export to Google Sheets');
+      }
+    } catch (error) {
+      showError('Error', 'Failed to export to Google Sheets');
+    }
+  };
+
+  const handleExportToGoogleDocs = async (data?: { id?: string; url?: string; title?: string }) => {
+    try {
+      if (!data) return;
+      const response = await sendMessageToServiceWorker({
+        action: 'EXPORT_TO_GOOGLE_DOCS',
+        id: data.id,
+        tabUrl: data.url,
+        documentName: `${data.title || 'Tab'} - Report`
+      });
+      if (response.success) {
+        showSuccess('Exported to Google Docs', `View your document: ${response.data.url}`);
+        setReportPrompt(null);
+      } else {
+        showError('Export Failed', response.error || 'Could not export to Google Docs');
+      }
+    } catch (error) {
+      showError('Error', 'Failed to export to Google Docs');
+    }
+  };
+
+  const openExportFromSummary = async () => {
+    const tab = selectedSummaryForQA;
+    if (!tab) return;
+    if (tab.category === 'youtube') {
+      const fresh = await fetchStoredTab(tab.id, tab.url);
+      const count = fresh?.youtubeData?.comments?.length || tab.youtubeData?.comments?.length || 0;
+      setExportPrompt({ id: tab.id, url: tab.url, title: tab.title, count });
+    } else {
+      setReportPrompt({ id: tab.id, url: tab.url, title: tab.title });
+    }
+  };
+
+  const openExportFromMain = async () => {
+    // For main category QA, only offer report generation
+    const anyTab = filteredTabs[0];
+    if (anyTab) {
+      setReportPrompt({ id: anyTab.id, url: anyTab.url, title: anyTab.title });
+    } else {
+      setReportPrompt({ title: `${categories.find(c => c.id === selectedCategory)?.label || 'All'} Category` });
+    }
+  };
+
   return (
     <div className="w-full h-screen bg-gradient-to-br from-background via-background to-muted/20 flex flex-col overflow-hidden shadow-2xl">
       <ToastContainer toasts={toasts} onRemove={removeToast} />
@@ -1415,7 +1585,6 @@ const TabSenseSidebar: React.FC = () => {
           console.log('[TabSense] After setShowSettingsPage(true)');
         }}
         onHistoryClick={() => setIsArchiveExpanded(true)}
-        onRefreshClick={refreshAndProcessTabs}
         serviceWorkerStatus={serviceWorkerStatus}
       />
       
@@ -1579,6 +1748,22 @@ const TabSenseSidebar: React.FC = () => {
             conversationTitle={conversationTitle}
             loadingStage={loadingStage}
             serviceWorkerStatus={serviceWorkerStatus}
+            exportPrompt={exportPrompt}
+            onExportChoice={handleExportChoice}
+            onExportToGoogleSheets={handleExportToGoogleSheets}
+            reportPrompt={reportPrompt}
+            onReportChoice={handleReportChoice}
+            onExportToGoogleDocs={handleExportToGoogleDocs}
+            googleSheetsEnabled={googleSheetsEnabled}
+            googleDocsEnabled={googleDocsEnabled}
+            onOpenExportMenu={openExportFromSummary}
+            extractedImages={selectedSummaryForQA?.extractedImages}
+            onImageQuestionClick={(question) => {
+              setSummaryQuestion(question);
+              setTimeout(() => handleSummaryAskQuestion(), 100);
+            }}
+            onToggleImages={() => setShowSummaryImages(!showSummaryImages)}
+            showImages={showSummaryImages}
             onRegenerateQuestions={async () => {
               // Works for both active tabs and loaded conversations
               const summaryForQuestions = selectedSummaryForQA?.summary || 
@@ -1897,6 +2082,47 @@ const TabSenseSidebar: React.FC = () => {
                                   </div>
                                 )}
 
+                                {/* Export actions for YouTube */}
+                                {tab.category === 'youtube' && (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <FileText className="w-4 h-4 text-primary" />
+                                      <h4 className="text-xs font-bold text-foreground">Exports</h4>
+                                      <button
+                                        className="ml-auto text-xs px-2 py-1 rounded bg-muted hover:bg-muted/70"
+                                        onClick={(e) => { e.stopPropagation(); setOpenExportFor(openExportFor === tab.id ? null : tab.id); }}
+                                      >
+                                        {openExportFor === tab.id ? 'Hide' : 'Show'}
+                                      </button>
+                                    </div>
+                                    {openExportFor === tab.id && (
+                                      <div className="pl-6 flex items-center gap-2">
+                                        <button
+                                          className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground"
+                                          title="Export CSV"
+                                          onClick={(e) => { e.stopPropagation(); chrome.runtime.sendMessage({ action: 'EXPORT_YOUTUBE_COMMENTS', id: tab.id, tabUrl: tab.url, format: 'csv' }); }}
+                                        >
+                                          CSV
+                                        </button>
+                                        <button
+                                          className="px-2 py-1 text-xs rounded bg-primary/80 text-primary-foreground"
+                                          title="Export Excel"
+                                          onClick={(e) => { e.stopPropagation(); chrome.runtime.sendMessage({ action: 'EXPORT_YOUTUBE_COMMENTS', id: tab.id, tabUrl: tab.url, format: 'excel' }); }}
+                                        >
+                                          Excel
+                                        </button>
+                                        <button
+                                          className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground"
+                                          title="Download report (.md)"
+                                          onClick={(e) => { e.stopPropagation(); chrome.runtime.sendMessage({ action: 'EXPORT_REPORT', id: tab.id, tabUrl: tab.url }); }}
+                                        >
+                                          Doc
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
                                 {/* Processing Information */}
                                 {(tab.metadata?.summaryMethod || tab.metadata?.contextEnhanced || tab.metadata?.cached) && (
                                   <div className="space-y-2">
@@ -1965,6 +2191,7 @@ const TabSenseSidebar: React.FC = () => {
           </div>
         ) : (
           /* Q&A Expanded Section */
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <QASection
             question={mainQuestion}
             setQuestion={setMainQuestion}
@@ -1980,39 +2207,53 @@ const TabSenseSidebar: React.FC = () => {
               console.log('Menu action:', action);
               setIsMenuOpen(false);
             }}
-            suggestedQuestions={mainSuggestedQuestions}
-            loadingStage={loadingStage}
-            serviceWorkerStatus={serviceWorkerStatus}
-            onRegenerateQuestions={async () => {
-              setIsRegeneratingMainQuestions(true);
-              try {
-                const categoryTabs = filteredTabs;
-                const categorySummaries = categoryTabs
-                  .filter(tab => tab.summary && tab.summary.length > 0)
-                  .map(tab => tab.summary)
-                  .join('\n\n');
-                
-                if (categorySummaries.length > 0) {
-                  const questionsResponse = await sendMessageToServiceWorker({
-                    action: 'GENERATE_SUGGESTED_QUESTIONS',
-                    summary: categorySummaries.substring(0, 2000),
-                    category: selectedCategory === 'all' ? 'generic' : selectedCategory,
-                    title: `${categories.find(c => c.id === selectedCategory)?.label || 'All'} Content Query`
-                  });
-                  
-                  if (questionsResponse.success && questionsResponse.data?.questions) {
-                    setMainSuggestedQuestions(questionsResponse.data.questions);
-                    console.log('[TabSense] Regenerated main suggested questions:', questionsResponse.data.questions);
-                  }
-                }
-              } catch (error) {
-                console.error('[TabSense] Error regenerating main suggested questions:', error);
-              } finally {
-                setIsRegeneratingMainQuestions(false);
-              }
-            }}
-            isRegeneratingQuestions={isRegeneratingMainQuestions}
-          />
+             suggestedQuestions={mainSuggestedQuestions}
+             loadingStage={loadingStage}
+             serviceWorkerStatus={serviceWorkerStatus}
+             exportPrompt={exportPrompt}
+             onExportChoice={handleExportChoice}
+             onExportToGoogleSheets={handleExportToGoogleSheets}
+             reportPrompt={reportPrompt}
+             onReportChoice={handleReportChoice}
+             onExportToGoogleDocs={handleExportToGoogleDocs}
+             googleSheetsEnabled={googleSheetsEnabled}
+             googleDocsEnabled={googleDocsEnabled}
+             onOpenExportMenu={openExportFromMain}
+             onClose={() => setIsQAExpanded(false)}
+             onRegenerateQuestions={async () => {
+               setIsRegeneratingMainQuestions(true);
+               try {
+                 const categoryTabs = filteredTabs;
+                 const items = categoryTabs
+                   .filter(tab => tab.summary && tab.summary.length > 0)
+                   .slice(0, 8)
+                   .map(tab => {
+                     const excerpt = tab.summary.replace(/\s+/g, ' ').slice(0, 400);
+                     return `- Title: ${tab.title}\n  Category: ${tab.category}\n  Summary: ${excerpt}`;
+                   });
+                 const consolidated = items.join('\n\n');
+                 if (consolidated.length > 0) {
+                   const questionsResponse = await sendMessageToServiceWorker({
+                     action: 'GENERATE_SUGGESTED_QUESTIONS',
+                     summary: consolidated.substring(0, 2000),
+                     category: selectedCategory === 'all' ? 'generic' : selectedCategory,
+                     title: `${categories.find(c => c.id === selectedCategory)?.label || 'All'} Content Query`
+                   });
+                   
+                   if (questionsResponse.success && questionsResponse.data?.questions) {
+                     setMainSuggestedQuestions(questionsResponse.data.questions);
+                     console.log('[TabSense] Regenerated main suggested questions:', questionsResponse.data.questions);
+                   }
+                 }
+               } catch (error) {
+                 console.error('[TabSense] Error regenerating main suggested questions:', error);
+               } finally {
+                 setIsRegeneratingMainQuestions(false);
+               }
+             }}
+             isRegeneratingQuestions={isRegeneratingMainQuestions}
+            />
+          </div>
         )}
 
         {/* Ask AI Section - Only show when not in summary QA mode */}
@@ -2030,19 +2271,14 @@ const TabSenseSidebar: React.FC = () => {
                 className="flex items-center gap-2 flex-1"
               >
                 <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                  {isQAExpanded ? (
-                    <Archive className="w-3 h-3 text-primary" />
-                  ) : (
-                    <>
                       <Sparkles className="w-3 h-3 text-primary" />
                       Ask Questions
-                    </>
-                  )}
                 </h2>
               </button>
               <button
                 onClick={() => setIsQAExpanded(!isQAExpanded)}
                 className="p-1 hover:bg-muted/50 rounded transition-colors"
+                title={isQAExpanded ? 'Collapse' : 'Expand'}
               >
                 <ChevronDown 
                   className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${

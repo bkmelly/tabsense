@@ -495,6 +495,48 @@ Focus on the most important information with clear formatting. Start immediately
       return { category: 'reference', confidence: 0.95, method: 'url' };
     }
     
+    const combined = `${title || ''} \n ${summary || ''} \n ${content || ''}`.toLowerCase();
+    
+    // Heuristic content clues before AI
+    try {
+      const hits = {
+        news: 0,
+        blog: 0,
+        reference: 0,
+        academic: 0,
+        finance: 0
+      };
+      // News signals
+      const newsSignals = [
+        'breaking', 'according to', 'reported', 'journalist', 'press', 'reuters', 'associated press', 'bbc', 'cnn', 'guardian', 'nytimes', 'update:', 'developing', 'headline', 'wrote', 'said on', 'at \d{1,2}:\d{2}'
+      ];
+      // Blog signals
+      const blogSignals = [
+        'in my opinion', 'i think', 'we believe', 'guide', 'how to', 'tutorial', 'lessons learned', 'my take', 'opinion', 'thoughts', 'newsletter', 'substack'
+      ];
+      // Reference signals
+      const refSignals = [
+        'definition', 'overview', 'documentation', 'api reference', 'parameters', 'returns', 'example:', 'see also', 'encyclopedia', 'abstract', 'introduction', 'conclusion', 'dataset'
+      ];
+      // Academic signals
+      const academicSignals = [
+        'research', 'study', 'paper', 'publication', 'peer-reviewed', 'methodology', 'hypothesis', 'findings', 'citation', 'references', 'doi:', 'abstract', 'academic', 'scholarly', 'journal article', 'thesis', 'dissertation', 'university', 'institute'
+      ];
+      // Finance signals
+      const financeSignals = [
+        'stock', 'market', 'trading', 'investment', 'portfolio', 'revenue', 'profit', 'earnings', 'financial', 'quarterly', 'fiscal', 'dollar', 'currency', 'exchange', 'ticker', 'dividend', 'analyst', 'valuation', 'chart', 'graph', 'trend'
+      ];
+      newsSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.news++; });
+      blogSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.blog++; });
+      refSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.reference++; });
+      academicSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.academic++; });
+      financeSignals.forEach(s => { if (new RegExp(s, 'i').test(combined)) hits.finance++; });
+      const maxCat = Object.entries(hits).sort((a,b)=>b[1]-a[1])[0];
+      if (maxCat && maxCat[1] >= 3) {
+        return { category: maxCat[0], confidence: 0.85, method: 'heuristic' };
+      }
+    } catch {}
+    
     // If we have summary and content, use AI to analyze the actual content
     const contentToAnalyze = summary || content?.substring(0, 1500) || title;
     if (!contentToAnalyze || contentToAnalyze.length < 50) {
@@ -513,15 +555,20 @@ Categories:
 - **news**: Current events, breaking news, reports, journalism, factual reporting about recent events
 - **blog**: Personal opinion, editorial, how-to guide, tutorial, personal thoughts, commentary
 - **reference**: Encyclopedia article, documentation, technical reference, educational content, factual information
+- **academic**: Research papers, scholarly articles, academic publications, scientific studies, peer-reviewed content
+- **finance**: Financial news, market analysis, stock data, economic reports, trading information, financial charts
 - **generic**: Everything else (social media, forums, e-commerce, etc.)
 
 Important rules:
 1. If it's on a news site (like bbc.com) but the content is a recipe, cooking blog, lifestyle article, or entertainment piece - categorize as "blog", NOT "news"
 2. News must be about current events, factual reporting, journalism - not opinion pieces
 3. Reference includes Wikipedia articles, technical docs, educational content
-4. Blog includes opinion pieces, tutorials, personal experiences, guides
+4. Academic includes research papers, scientific articles, scholarly publications with methodology, findings, citations
+5. Finance includes stock market data, financial charts, economic analysis, trading information, earnings reports
+6. Blog includes opinion pieces, tutorials, personal experiences, guides
+7. Prefer content semantics over domain. If content reads like documentation/tutorial, choose blog/reference appropriately even on news domains.
 
-Respond with ONLY the category name: news, blog, reference, or generic
+Respond with ONLY the category name: news, blog, reference, academic, finance, or generic
 
 Category:`;
       
@@ -529,7 +576,7 @@ Category:`;
       if (result.success && result.answer) {
         const category = result.answer.trim().toLowerCase();
         // Validate category
-        const validCategories = ['news', 'blog', 'reference', 'youtube', 'generic'];
+        const validCategories = ['news', 'blog', 'reference', 'academic', 'finance', 'youtube', 'generic'];
         const matchedCategory = validCategories.find(cat => category.includes(cat) || cat.includes(category));
         
         if (matchedCategory && matchedCategory !== 'youtube') { // YouTube already handled by URL
@@ -556,6 +603,28 @@ Category:`;
     // More specific URL patterns
     if (urlLower.includes('wikipedia.org') || urlLower.includes('/wiki/')) {
       return { category: 'reference', confidence: 0.9, method: 'url' };
+    }
+    // Developer/docs sites
+    if (urlLower.includes('docs.') || urlLower.includes('/docs') || urlLower.includes('developer.')) {
+      return { category: 'reference', confidence: 0.75, method: 'url' };
+    }
+    // Academic sites
+    if (urlLower.includes('arxiv.org') || urlLower.includes('scholar.google.com') || 
+        urlLower.includes('jstor.org') || urlLower.includes('researchgate.net') ||
+        urlLower.includes('pubmed.ncbi.nlm.nih.gov') || urlLower.includes('ieee.org') ||
+        urlLower.includes('acm.org') || urlLower.includes('nature.com') ||
+        urlLower.includes('science.org') || urlLower.includes('doi.org')) {
+      return { category: 'academic', confidence: 0.85, method: 'url' };
+    }
+    // Finance sites
+    if (urlLower.includes('bloomberg.com') || urlLower.includes('reuters.com/finance') ||
+        urlLower.includes('yahoo.com/finance') || urlLower.includes('finance.yahoo.com') ||
+        urlLower.includes('marketwatch.com') || urlLower.includes('seekingalpha.com') ||
+        urlLower.includes('investing.com') || urlLower.includes('nasdaq.com') ||
+        urlLower.includes('ft.com') || urlLower.includes('wsj.com/markets') ||
+        urlLower.includes('cnbc.com') || urlLower.includes('financial') ||
+        urlLower.includes('/stock') || urlLower.includes('/trading')) {
+      return { category: 'finance', confidence: 0.75, method: 'url' };
     }
     
     if (urlLower.includes('/blog/') || urlLower.includes('/article/') || 
@@ -735,6 +804,24 @@ Category:`;
   }
   
   async summarizeWithFallback(content, url) {
+    // First, try Chrome built-in AI (Summarizer API)
+    try {
+      if (typeof Summarizer !== 'undefined') {
+        const availability = await Summarizer.availability();
+        if (availability === 'available') {
+          console.log('[AIProviderManager] Trying Chrome Summarizer...');
+          const session = await Summarizer.create();
+          const summary = await session.summarize(content);
+          console.log('[AIProviderManager] ✅ Success with Chrome Summarizer');
+          return { success: true, summary, provider: 'chrome' };
+        } else if (availability === 'downloadable') {
+          console.log('[AIProviderManager] Chrome Summarizer available but needs download');
+        }
+      }
+    } catch (chromeError) {
+      console.log('[AIProviderManager] Chrome Summarizer not available, falling back to external providers');
+    }
+    
     // Get enabled providers from storage
     const result = await chrome.storage.local.get(['ai_api_keys', 'ai_api_enabled']);
     const apiKeys = result.ai_api_keys || {};
@@ -881,7 +968,7 @@ Category:`;
       answer = data.choices[0].message.content;
     } else if (providerName === 'anthropic') {
       answer = data.content[0].text;
-    } else {
+        } else {
       throw new Error('Unknown provider for response parsing');
     }
     
@@ -891,6 +978,24 @@ Category:`;
   }
   
   async answerQuestionWithFallback(prompt) {
+    // First, try Chrome built-in AI (Prompt API)
+    try {
+      if (typeof Prompt !== 'undefined') {
+        const availability = await Prompt.availability();
+        if (availability === 'available') {
+          console.log('[AIProviderManager] Trying Chrome Prompt API...');
+          const session = await Prompt.create();
+          const answer = await session.prompt(prompt, { maxOutputTokens: 800 });
+          console.log('[AIProviderManager] ✅ Success with Chrome Prompt API');
+          return { success: true, answer, provider: 'chrome' };
+        } else if (availability === 'downloadable') {
+          console.log('[AIProviderManager] Chrome Prompt API available but needs download');
+        }
+      }
+    } catch (chromeError) {
+      console.log('[AIProviderManager] Chrome Prompt API not available, falling back to external providers');
+    }
+    
     // Get enabled providers from storage - same logic as summarizeWithFallback
     const result = await chrome.storage.local.get(['ai_api_keys', 'ai_api_enabled']);
     const apiKeys = result.ai_api_keys || {};
@@ -911,7 +1016,7 @@ Category:`;
         const answer = await this.answerQuestion(provider.name, prompt, provider.key);
         console.log(`[AIProviderManager] ✅ Success with ${provider.name} for Q&A`);
         return { success: true, answer, provider: provider.name };
-      } catch (error) {
+    } catch (error) {
         console.log(`[AIProviderManager] ❌ ${provider.name} Q&A failed: ${error.message}`);
         // For 503 errors (Service Unavailable), log additional context
         if (error.message.includes('503')) {
@@ -953,28 +1058,125 @@ Category:`;
   }
 }
 
+// Function to extract and filter relevant images (diagrams, charts, educational)
+function extractRelevantImages() {
+  try {
+    // Find main content area
+    const contentArea = document.querySelector('article') || 
+                        document.querySelector('main') || 
+                        document.querySelector('[role="main"]') ||
+                        document.querySelector('.content') ||
+                        document.querySelector('#content') ||
+                        document.body;
+    
+    // Extract images from content area only (not headers/footers)
+    const allImages = Array.from(contentArea.querySelectorAll('img'))
+      .filter(img => {
+        // Exclude data URLs and very small images (likely icons)
+        if (!img.src || img.src.startsWith('data:')) return false;
+        
+        // Check dimensions (exclude tiny icons/logos)
+        const width = img.naturalWidth || img.width || 0;
+        const height = img.naturalHeight || img.height || 0;
+        if (width < 200 || height < 200) return false;
+        
+        // Check if in unwanted areas (headers, footers, ads)
+        const parent = img.closest('header, footer, nav, aside, .header, .footer, .nav, .advertisement, .ad, .sidebar');
+        if (parent) return false;
+        
+        // Check alt text and title for relevance
+        const alt = (img.alt || '').toLowerCase();
+        const title = (img.title || '').toLowerCase();
+        const src = img.src.toLowerCase();
+        
+        // Relevant keywords for diagrams, charts, educational content
+        const relevantKeywords = [
+          'diagram', 'chart', 'graph', 'figure', 'illustration', 'image', 'picture',
+          'plot', 'visualization', 'schema', 'flowchart', 'map', 'table',
+          'financial', 'trading', 'stock', 'market', 'research', 'study', 'paper',
+          'academic', 'scientific', 'data', 'analysis', 'results', 'findings'
+        ];
+        
+        const combined = `${alt} ${title} ${src}`;
+        const hasRelevantKeyword = relevantKeywords.some(keyword => combined.includes(keyword));
+        
+        // Also include if in common content areas (likely to be relevant)
+        const isInContentArea = img.closest('article, .article, .post, .entry, .content, .main-content, figure, .figure');
+        
+        return hasRelevantKeyword || isInContentArea;
+      })
+      .map(img => ({
+        src: img.src,
+        alt: img.alt || '',
+        title: img.title || '',
+        width: img.naturalWidth || img.width || 0,
+        height: img.naturalHeight || img.height || 0,
+        context: (img.closest('figure')?.querySelector('figcaption')?.textContent || '').trim().substring(0, 200)
+      }))
+      .slice(0, 10); // Limit to 10 most relevant images
+    
+    return allImages;
+  } catch (error) {
+    console.error('[extractRelevantImages] Error:', error);
+    return [];
+  }
+}
+
 // Function to extract page content (injected into tabs)
 function extractPageContent() {
+  console.log('[extractPageContent] Starting extraction on:', window.location.href);
+  
   try {
     // Simple content extraction
     const title = document.title;
+    console.log('[extractPageContent] Title:', title);
+    
     const textContent = document.body.innerText || document.body.textContent || '';
+    console.log('[extractPageContent] Body text length:', textContent.length);
+    
     const metaDescription = document.querySelector('meta[name="description"]')?.content || '';
+    console.log('[extractPageContent] Meta description:', metaDescription ? metaDescription.substring(0, 100) : 'none');
     
-    // Extract main content
-    const article = document.querySelector('article') || 
-                    document.querySelector('main') || 
-                    document.querySelector('[role="main"]');
+    // Extract main content - try multiple selectors
+    let article = document.querySelector('article');
+    console.log('[extractPageContent] Found article element:', !!article);
     
-    const mainContent = article ? article.innerText : textContent;
+    if (!article) {
+      article = document.querySelector('main');
+      console.log('[extractPageContent] Found main element:', !!article);
+    }
     
-    // Get images
-    const images = Array.from(document.querySelectorAll('img'))
-      .slice(0, 5)
-      .map(img => img.src)
-      .filter(src => src && !src.startsWith('data:'));
-        
-        return {
+    if (!article) {
+      article = document.querySelector('[role="main"]');
+      console.log('[extractPageContent] Found [role="main"] element:', !!article);
+    }
+    
+    // Try additional selectors for content
+    if (!article) {
+      article = document.querySelector('.article, .post, .entry, .content, .story, .article-content, .post-content, .entry-content, #content, #main-content');
+      console.log('[extractPageContent] Found content element via class/ID:', !!article);
+    }
+    
+    let mainContent = '';
+    if (article) {
+      mainContent = article.innerText || article.textContent || '';
+      console.log('[extractPageContent] Article content length:', mainContent.length);
+      console.log('[extractPageContent] Article preview:', mainContent.substring(0, 200));
+    } else {
+      console.log('[extractPageContent] No article/main found, using body text');
+      mainContent = textContent;
+    }
+    
+    // Get relevant images (filtered for diagrams, charts, educational content)
+    let images = [];
+    try {
+      images = extractRelevantImages();
+      console.log('[extractPageContent] Extracted images:', images.length);
+    } catch (imgError) {
+      console.error('[extractPageContent] Error extracting images:', imgError);
+    }
+
+    const result = {
       title: title,
       content: mainContent.substring(0, 5000), // Limit content size
       summary: metaDescription || mainContent.substring(0, 200),
@@ -982,13 +1184,34 @@ function extractPageContent() {
       category: 'generic',
       wordCount: mainContent.split(/\s+/).length
     };
+    
+    console.log('[extractPageContent] Extraction complete:', {
+      title: result.title,
+      contentLength: result.content.length,
+      summaryLength: result.summary.length,
+      wordCount: result.wordCount,
+      imageCount: result.images.length
+    });
+    
+    return result;
+    
     } catch (error) {
-    console.error('Error extracting content:', error);
+    console.error('[extractPageContent] Error extracting content:', error);
+    console.error('[extractPageContent] Error stack:', error.stack);
+    console.error('[extractPageContent] Error details:', {
+      message: error.message,
+      name: error.name,
+      url: window.location.href,
+      title: document.title
+    });
+    
       return {
-      title: document.title,
+      title: document.title || 'Unknown',
       content: '',
       summary: 'Failed to extract content',
-      category: 'generic'
+      category: 'generic',
+      error: error.message,
+      url: window.location.href
     };
   }
 }
@@ -1078,8 +1301,550 @@ class TabSenseServiceWorker {
     this.messageHandlers.set('ANSWER_MULTI_TAB_QUESTION', this.handleAnswerMultiTabQuestion.bind(this));
     this.messageHandlers.set('GET_EXTERNAL_CONTEXT', this.handleGetExternalContext.bind(this));
     this.messageHandlers.set('EXTRACT_DATA_FROM_URL', this.handleExtractDataFromUrl.bind(this));
+    // Export handlers
+    this.messageHandlers.set('EXPORT_YOUTUBE_COMMENTS', this.handleExportYouTubeComments.bind(this));
+    this.messageHandlers.set('EXPORT_REPORT', this.handleExportReport.bind(this));
+    // Google API handlers
+    this.messageHandlers.set('GOOGLE_OAUTH_AUTH', this.handleGoogleOAuthAuth.bind(this));
+    this.messageHandlers.set('EXPORT_TO_GOOGLE_SHEETS', this.handleExportToGoogleSheets.bind(this));
+    this.messageHandlers.set('EXPORT_TO_GOOGLE_DOCS', this.handleExportToGoogleDocs.bind(this));
+    // Category QA
+    this.messageHandlers.set('ANSWER_CATEGORY_QUESTION', this.handleAnswerCategoryQuestion.bind(this));
     
     console.log('[TabSense] Message handlers set up:', this.messageHandlers.size);
+  }
+  // ==================== Export Helpers ====================
+  slugify(text) {
+    return (text || '').toString().toLowerCase()
+      .replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '')
+      .replace(/\-+/g, '-').replace(/^\-+|\-+$/g, '') || 'export';
+  }
+
+  buildYouTubeCommentsCSV(tabData) {
+    const comments = tabData?.youtubeData?.comments || [];
+    
+    const pickLabel = (c) => {
+      return (c._score || 0) > 1 ? 'positive' : (c._score || 0) < -1 ? 'negative' : 'neutral';
+    };
+    
+    // Clean CSV format - escape commas, quotes, and newlines
+    const safe = (v) => {
+      const str = String(v ?? '');
+      // If contains comma, quote, or newline, wrap in quotes and escape quotes
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    };
+    
+    const rows = [];
+    // Header row
+    rows.push(['Sentiment', 'Author', 'Likes', 'Replies', 'Published', 'Comment Text'].join(','));
+    
+    // Data rows
+    comments.forEach(c => {
+      const sentiment = pickLabel(c);
+      rows.push([
+        safe(sentiment),
+        safe(c.author || ''),
+        safe(c.likeCount || 0),
+        safe(c.replyCount || 0),
+        safe(c.publishedAt || ''),
+        safe((c.text || '').replace(/\n+/g, ' '))
+      ].join(','));
+    });
+    
+    return rows.join('\n');
+  }
+
+  buildYouTubeCommentsExcel(tabData) {
+    // Excel XML format (SpreadsheetML) - uses same data as CSV but with Excel-specific formatting
+    const comments = tabData?.youtubeData?.comments || [];
+    const insights = this.analyzeYouTubeComments(comments);
+    
+    const pickLabel = (c) => {
+      return (c._score || 0) > 1 ? 'positive' : (c._score || 0) < -1 ? 'negative' : 'neutral';
+    };
+    
+    const safe = (v) => {
+      const str = String(v ?? '');
+      // Escape XML special characters
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+    
+    const getSentimentColor = (sentiment) => {
+      if (sentiment === 'positive') return 'FF90EE90'; // Light green
+      if (sentiment === 'negative') return 'FFFFB6C1'; // Light pink
+      return 'FFFFFFFF'; // White
+    };
+    
+    let xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Worksheet ss:Name="Comments">
+  <Table>
+   <Row>
+    <Cell><Data ss:Type="String">Sentiment</Data></Cell>
+    <Cell><Data ss:Type="String">Author</Data></Cell>
+    <Cell><Data ss:Type="String">Likes</Data></Cell>
+    <Cell><Data ss:Type="String">Replies</Data></Cell>
+    <Cell><Data ss:Type="String">Published</Data></Cell>
+    <Cell><Data ss:Type="String">Comment Text</Data></Cell>
+   </Row>`;
+    
+    comments.forEach(c => {
+      const sentiment = pickLabel(c);
+      const bgColor = getSentimentColor(sentiment);
+      xml += `
+   <Row>
+    <Cell ss:StyleID="s${sentiment}"><Data ss:Type="String">${safe(sentiment)}</Data></Cell>
+    <Cell ss:StyleID="s${sentiment}"><Data ss:Type="String">${safe(c.author || '')}</Data></Cell>
+    <Cell ss:StyleID="s${sentiment}"><Data ss:Type="Number">${c.likeCount || 0}</Data></Cell>
+    <Cell ss:StyleID="s${sentiment}"><Data ss:Type="Number">${c.replyCount || 0}</Data></Cell>
+    <Cell ss:StyleID="s${sentiment}"><Data ss:Type="String">${safe(c.publishedAt || '')}</Data></Cell>
+    <Cell ss:StyleID="s${sentiment}"><Data ss:Type="String">${safe((c.text || '').replace(/\n+/g, ' '))}</Data></Cell>
+   </Row>`;
+    });
+    
+    xml += `
+  </Table>
+ </Worksheet>
+</Workbook>`;
+    
+    return xml;
+  }
+
+  async handleExportYouTubeComments(payload, sender) {
+    try {
+      const { tabUrl, id, format = 'csv' } = payload || {}; // Default to CSV
+      console.log('[TabSense] EXPORT_YOUTUBE_COMMENTS handler called with:', { tabUrl, id, format });
+      const result = await chrome.storage.local.get(['multi_tab_collection']);
+      const coll = result.multi_tab_collection || [];
+      const match = coll.find(t => (id && t.id === id) || (tabUrl && t.url === tabUrl));
+      if (!match || !match.youtubeData || !Array.isArray(match.youtubeData.comments)) {
+        console.error('[TabSense] Export failed: No comments found. Match:', !!match, 'has youtubeData:', !!match?.youtubeData, 'comments length:', match?.youtubeData?.comments?.length);
+        return { success: false, error: 'No YouTube comments found for this tab.' };
+      }
+      console.log('[TabSense] Found tab with', match.youtubeData.comments.length, 'comments');
+      
+      let content, mimeType, filename;
+      
+      if (format === 'excel' || format === 'xls') {
+        // Excel XML format
+        content = this.buildYouTubeCommentsExcel(match);
+        mimeType = 'text/xml;charset=utf-8';
+        filename = `${this.slugify(match.title)}-comments.xls`;
+      } else {
+        // Default: CSV format
+        content = this.buildYouTubeCommentsCSV(match);
+        mimeType = 'text/csv;charset=utf-8';
+        filename = `${this.slugify(match.title)}-comments.csv`;
+      }
+      
+      const url = `data:${mimeType},` + encodeURIComponent(content);
+      console.log('[TabSense] Attempting download:', filename, 'Format:', format, 'URL length:', url.length);
+      
+      if (chrome.downloads && chrome.downloads.download) {
+        await chrome.downloads.download({ url, filename });
+        console.log('[TabSense] ✅ Download initiated successfully');
+      } else {
+        console.error('[TabSense] chrome.downloads API not available');
+      }
+      return { success: true, data: { url, filename, format } };
+    } catch (e) {
+      console.error('[TabSense] Export failed:', e);
+      return { success: false, error: e.message };
+    }
+  }
+
+  buildMarkdownReport(tabData) {
+    const lines = [];
+    lines.push(`# ${tabData.title || 'Report'}`);
+    lines.push('');
+    lines.push(`URL: ${tabData.url}`);
+    lines.push('');
+    lines.push('## Overview');
+    lines.push(tabData.summary || 'No summary available.');
+    lines.push('');
+    if (tabData.category === 'youtube' && tabData.youtubeData) {
+      const yt = tabData.youtubeData;
+      lines.push('## Key Takeaways');
+      lines.push('- Include key points extracted from the summary.');
+      lines.push('');
+      lines.push('## Host\'s Viewpoint');
+      lines.push('- If applicable, summarize the host\'s stance.');
+      lines.push('');
+      const insights = this.analyzeYouTubeComments(yt.comments || []);
+      lines.push('## Sentiment Breakdown');
+      lines.push(`- Positive: ${insights.percentages.positive}%`);
+      lines.push(`- Negative: ${insights.percentages.negative}%`);
+      lines.push(`- Neutral: ${insights.percentages.neutral}%`);
+      lines.push('');
+      lines.push('## Comment Themes');
+      this.extractYouTubeCommentThemes(yt.comments || []).slice(0,6).forEach(t => lines.push(`- ${t}`));
+      lines.push('');
+      lines.push('## Representative Comments');
+      const rep = insights.representatives;
+      ['positive','negative','neutral'].forEach(k => {
+        if ((rep[k] || []).length > 0) {
+          lines.push(`### ${k[0].toUpperCase()}${k.slice(1)}`);
+          rep[k].slice(0,3).forEach(c => lines.push(`- ${c.text} — ${c.author} (${c.likeCount} likes)`));
+          lines.push('');
+        }
+      });
+    }
+    lines.push('## Sources');
+    lines.push('- Sources are available in the extension under the answer.');
+    lines.push('');
+    lines.push('## Insight');
+    lines.push('- Summarize the overarching takeaway and implications.');
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  async handleExportReport(payload, sender) {
+    try {
+      const { tabUrl, id } = payload || {};
+      const result = await chrome.storage.local.get(['multi_tab_collection']);
+      const coll = result.multi_tab_collection || [];
+      const match = coll.find(t => (id && t.id === id) || (tabUrl && t.url === tabUrl));
+      if (!match) return { success: false, error: 'Tab not found.' };
+      // Try Chrome AI first, then fallback to external AI
+      let md = '';
+      try {
+        const base = this.buildMarkdownReport(match);
+        // First try Chrome Prompt API
+        const chromeResult = await this.generateReportWithChromeAI(base);
+        if (chromeResult.success && chromeResult.report && chromeResult.report.length > 120) {
+          md = chromeResult.report;
+          console.log('[TabSense] ✅ Report generated using Chrome AI');
+        } else {
+          // Fallback to external AI
+          const prompt = `You are a professional report writer. Compose a clear, sectioned Markdown report from the following context. Keep headings (##), use concise paragraphs and bullet points, and include a short concluding Insight. Avoid raw URLs in the body; add a Sources section at the end if needed.\n\nCONTEXT:\n${base}\n\nREPORT:`;
+          const ai = await this.aiProviderManager.summarizeWithFallback(prompt, match.url);
+          if (ai.success && ai.summary && ai.summary.length > 120) {
+            md = ai.summary;
+            console.log('[TabSense] ✅ Report generated using external AI');
+          }
+        }
+      } catch (error) {
+        console.error('[TabSense] Report generation failed:', error);
+      }
+      if (!md) md = this.buildMarkdownReport(match);
+      const url = 'data:text/markdown;charset=utf-8,' + encodeURIComponent(md);
+      const filename = `${this.slugify(match.title)}.md`;
+      if (chrome.downloads && chrome.downloads.download) {
+        await chrome.downloads.download({ url, filename });
+      }
+      return { success: true, data: { url, filename } };
+    } catch (e) {
+      console.error('[TabSense] Export report failed:', e);
+      return { success: false, error: e.message };
+    }
+  }
+
+  // Google OAuth Authentication
+  async handleGoogleOAuthAuth(payload, sender) {
+    try {
+      const { service } = payload || {}; // 'sheets' or 'docs'
+      const scopes = service === 'sheets' 
+        ? 'https://www.googleapis.com/auth/spreadsheets'
+        : 'https://www.googleapis.com/auth/documents';
+      
+      const clientId = await this.getGoogleClientId();
+      if (!clientId) {
+        return { success: false, error: 'Google Client ID not configured. Please set it in settings.' };
+      }
+      
+      const redirectUri = chrome.identity.getRedirectURL();
+      console.log('[TabSense] Google OAuth - Using redirect URI:', redirectUri);
+      console.log('[TabSense] Google OAuth - Client ID:', clientId.substring(0, 20) + '...');
+      
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
+      
+      const token = await new Promise((resolve, reject) => {
+        chrome.identity.launchWebAuthFlow({
+          url: authUrl,
+          interactive: true
+        }, (responseUrl) => {
+          if (chrome.runtime.lastError) {
+            const error = chrome.runtime.lastError.message;
+            console.error('[TabSense] Google OAuth error:', error);
+            console.error('[TabSense] Expected redirect URI:', redirectUri);
+            console.error('[TabSense] Make sure this EXACT URI is added in Google Cloud Console under "Authorized redirect URIs"');
+            
+            // Provide helpful error message for redirect_uri_mismatch
+            if (error.includes('redirect_uri_mismatch') || error.includes('redirect')) {
+              reject(new Error(`Redirect URI mismatch. Please add this EXACT redirect URI in Google Cloud Console:\n\n${redirectUri}\n\nCopy this URI and add it to your OAuth 2.0 Client ID under "Authorized redirect URIs" in Google Cloud Console.`));
+            } else {
+              reject(new Error(error));
+            }
+            return;
+          }
+          const urlParams = new URLSearchParams(responseUrl.split('#')[1]);
+          const accessToken = urlParams.get('access_token');
+          resolve(accessToken);
+        });
+      });
+      
+      // Store token for this service
+      const storageKey = `google_${service}_token`;
+      await chrome.storage.local.set({ [storageKey]: token });
+      console.log('[TabSense] Google OAuth - Successfully authenticated for', service);
+      
+      return { success: true, data: { service, authenticated: true } };
+    } catch (e) {
+      console.error('[TabSense] Google OAuth failed:', e);
+      return { success: false, error: e.message };
+    }
+  }
+
+  async getGoogleClientId() {
+    // Try multiple storage locations
+    const result = await chrome.storage.local.get(['google_client_id', 'other_api_keys']);
+    if (result.google_client_id) return result.google_client_id;
+    if (result.other_api_keys?.google_client_id) return result.other_api_keys.google_client_id;
+    // Also check tabsense_api_keys pattern
+    const tabsenseKeys = await chrome.storage.local.get(['tabsense_api_keys']);
+    if (tabsenseKeys.tabsense_api_keys?.google_client_id) return tabsenseKeys.tabsense_api_keys.google_client_id;
+    return null;
+  }
+
+  async getGoogleAccessToken(service) {
+    const storageKey = `google_${service}_token`;
+    const result = await chrome.storage.local.get([storageKey]);
+    return result[storageKey] || null;
+  }
+
+  // Export to Google Sheets
+  async handleExportToGoogleSheets(payload, sender) {
+    try {
+      const { tabUrl, id, spreadsheetName } = payload || {};
+      const token = await this.getGoogleAccessToken('sheets');
+      if (!token) {
+        return { success: false, error: 'Not authenticated with Google Sheets. Please authenticate first.' };
+      }
+      
+      // Find tab data
+      const result = await chrome.storage.local.get(['multi_tab_collection']);
+      const coll = result.multi_tab_collection || [];
+      const match = coll.find(t => (id && t.id === id) || (tabUrl && t.url === tabUrl));
+      
+      if (!match || !match.youtubeData || !Array.isArray(match.youtubeData.comments)) {
+        return { success: false, error: 'No YouTube comments found for this tab.' };
+      }
+      
+      const comments = match.youtubeData.comments || [];
+      const insights = this.analyzeYouTubeComments(comments);
+      
+      // Create new spreadsheet
+      const createResponse = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          properties: {
+            title: spreadsheetName || `${this.slugify(match.title)} - Comments`
+          },
+          sheets: [{
+            properties: {
+              title: 'Comments',
+              gridProperties: {
+                rowCount: comments.length + 2,
+                columnCount: 6
+              }
+            }
+          }, {
+            properties: {
+              title: 'Summary'
+            }
+          }]
+        })
+      });
+      
+      if (!createResponse.ok) {
+        const error = await createResponse.json();
+        throw new Error(error.error?.message || 'Failed to create spreadsheet');
+      }
+      
+      const spreadsheet = await createResponse.json();
+      const spreadsheetId = spreadsheet.spreadsheetId;
+      
+      // Prepare data for comments sheet
+      const values = [
+        ['Sentiment', 'Author', 'Likes', 'Replies', 'Published', 'Comment Text'],
+        ...comments.map(c => {
+          const sentiment = (c._score || 0) > 1 ? 'positive' : (c._score || 0) < -1 ? 'negative' : 'neutral';
+          return [
+            sentiment,
+            c.author || '',
+            c.likeCount || 0,
+            c.replyCount || 0,
+            c.publishedAt || '',
+            (c.text || '').replace(/\n+/g, ' ')
+          ];
+        })
+      ];
+      
+      // Write comments data
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Comments!A1:F${values.length}?valueInputOption=RAW`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values })
+      });
+      
+      // Write summary data
+      const summaryValues = [
+        ['Metric', 'Value'],
+        ['Total Comments', insights.total],
+        ['Positive', insights.counts.positive],
+        ['Negative', insights.counts.negative],
+        ['Neutral', insights.counts.neutral],
+        ['Positive %', insights.percentages.positive],
+        ['Negative %', insights.percentages.negative],
+        ['Neutral %', insights.percentages.neutral]
+      ];
+      
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Summary!A1:B${summaryValues.length}?valueInputOption=RAW`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: summaryValues })
+      });
+      
+      const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+      return { success: true, data: { spreadsheetId, url: spreadsheetUrl } };
+    } catch (e) {
+      console.error('[TabSense] Export to Google Sheets failed:', e);
+      return { success: false, error: e.message };
+    }
+  }
+
+  // Export to Google Docs
+  async handleExportToGoogleDocs(payload, sender) {
+    try {
+      const { tabUrl, id, documentName } = payload || {};
+      const token = await this.getGoogleAccessToken('docs');
+      if (!token) {
+        return { success: false, error: 'Not authenticated with Google Docs. Please authenticate first.' };
+      }
+      
+      // Find tab data
+      const result = await chrome.storage.local.get(['multi_tab_collection']);
+      const coll = result.multi_tab_collection || [];
+      const match = coll.find(t => (id && t.id === id) || (tabUrl && t.url === tabUrl));
+      if (!match) return { success: false, error: 'Tab not found.' };
+      
+      // Generate report content - Chrome AI first, then fallback
+      let md = '';
+      try {
+        const base = this.buildMarkdownReport(match);
+        // First try Chrome Prompt API
+        const chromeResult = await this.generateReportWithChromeAI(base);
+        if (chromeResult.success && chromeResult.report && chromeResult.report.length > 120) {
+          md = chromeResult.report;
+          console.log('[TabSense] ✅ Google Docs report generated using Chrome AI');
+        } else {
+          // Fallback to external AI
+          const prompt = `You are a professional report writer. Compose a clear, sectioned Markdown report from the following context. Keep headings (##), use concise paragraphs and bullet points, and include a short concluding Insight. Avoid raw URLs in the body; add a Sources section at the end if needed.\n\nCONTEXT:\n${base}\n\nREPORT:`;
+          const ai = await this.aiProviderManager.summarizeWithFallback(prompt, match.url);
+          if (ai.success && ai.summary && ai.summary.length > 120) {
+            md = ai.summary;
+            console.log('[TabSense] ✅ Google Docs report generated using external AI');
+          }
+        }
+      } catch (error) {
+        console.error('[TabSense] Google Docs report generation failed:', error);
+      }
+      if (!md) md = this.buildMarkdownReport(match);
+      
+      // Convert markdown to plain text with structure (Google Docs API uses plain text)
+      const text = md.replace(/#{1,6}\s*(.+)/g, '$1\n').replace(/\*\*(.+?)\*\*/g, '$1').replace(/\n{2,}/g, '\n\n');
+      
+      // Create new document
+      const createResponse = await fetch('https://docs.googleapis.com/v1/documents', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: documentName || `${match.title} - Report`
+        })
+      });
+      
+      if (!createResponse.ok) {
+        const error = await createResponse.json();
+        throw new Error(error.error?.message || 'Failed to create document');
+      }
+      
+      const document = await createResponse.json();
+      const documentId = document.documentId;
+      
+      // Insert content
+      await fetch(`https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requests: [{
+            insertText: {
+              location: { index: 1 },
+              text: text
+            }
+          }]
+        })
+      });
+      
+      const documentUrl = `https://docs.google.com/document/d/${documentId}`;
+      return { success: true, data: { documentId, url: documentUrl } };
+    } catch (e) {
+      console.error('[TabSense] Export to Google Docs failed:', e);
+      return { success: false, error: e.message };
+    }
+  }
+
+  // Category-wide QA: answer a question using all tabs in a category
+  async handleAnswerCategoryQuestion(payload, sender) {
+    try {
+      const { category, question, limit = 8 } = payload || {};
+      if (!category || !question) return { success: false, error: 'category and question are required' };
+      const result = await chrome.storage.local.get(['multi_tab_collection']);
+      const coll = (result.multi_tab_collection || []).filter(t => (t.category || 'generic').toLowerCase() === category.toLowerCase());
+      if (coll.length === 0) return { success: false, error: `No tabs found for category ${category}` };
+      // Build minimal context (cap for token limits)
+      const context = coll.slice(0, limit).map(t => ({
+        title: t.title,
+        url: t.url,
+        summary: t.summary,
+        category: t.category,
+        content: t.content
+      }));
+      // Reuse existing QA flow
+      const answer = await this.handleAnswerQuestion({ question, context, messages: [] }, sender);
+      return answer;
+    } catch (e) {
+      console.error('[TabSense] Category QA failed:', e);
+      return { success: false, error: e.message };
+    }
   }
 
   async initialize() {
@@ -1156,6 +1921,14 @@ class TabSenseServiceWorker {
 
     this.initialized = true;
     console.log('[TabSense] Service worker initialized');
+    try {
+      chrome.runtime.sendMessage({
+        action: 'SERVICE_WORKER_READY',
+        data: { initialized: true, timestamp: Date.now() }
+      });
+    } catch (e) {
+      console.warn('[TabSense] Could not broadcast SERVICE_WORKER_READY:', e?.message || e);
+    }
   }
 
   async createOffscreenDocument() {
@@ -1199,6 +1972,10 @@ class TabSenseServiceWorker {
           if (ytResult) {
             // Broadcast to UI that a tab was processed
             this.broadcastMessage({ action: 'TAB_AUTO_PROCESSED', data: ytResult });
+            // Also proactively prompt for exporting comments if available
+            if (ytResult.youtubeData && Array.isArray(ytResult.youtubeData.comments) && ytResult.youtubeData.comments.length > 0) {
+              this.broadcastMessage({ action: 'PROMPT_EXPORT_COMMENTS', data: { id: ytResult.id, url: ytResult.url, title: ytResult.title, count: ytResult.youtubeData.comments.length } });
+            }
             return;
           }
         } catch (ytErr) {
@@ -1208,17 +1985,62 @@ class TabSenseServiceWorker {
 
       // Inject content script and get page data (non-YouTube or fallback)
       try {
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: extractPageContent
+        console.log('[TabSense] Attempting to inject extractPageContent into tab:', tab.id, tab.url);
+        
+        let results;
+        try {
+          results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: extractPageContent
+          });
+        } catch (scriptError) {
+          console.error('[TabSense] Script execution failed:', scriptError);
+          console.error('[TabSense] Script error details:', {
+            message: scriptError.message,
+            name: scriptError.name,
+            stack: scriptError.stack,
+            tabId: tab.id,
+            url: tab.url
+          });
+          throw scriptError;
+        }
+        
+        console.log('[TabSense] Script execution results:', {
+          hasResult: !!results,
+          resultCount: results?.length || 0,
+          firstResult: results?.[0] ? {
+            hasResult: !!results[0].result,
+            error: results[0].error,
+            resultKeys: results[0].result ? Object.keys(results[0].result) : []
+          } : null
         });
         
         const extractedData = results[0]?.result || {};
-        console.log('[TabSense] Extracted data:', { 
+        
+        console.log('[TabSense] Extracted data details:', { 
           hasContent: !!extractedData.content, 
           contentLength: extractedData.content?.length || 0,
-          title: extractedData.title
+          contentPreview: extractedData.content?.substring(0, 200) || 'N/A',
+          title: extractedData.title,
+          summary: extractedData.summary,
+          summaryLength: extractedData.summary?.length || 0,
+          wordCount: extractedData.wordCount || 0,
+          imageCount: extractedData.images?.length || 0,
+          hasError: !!extractedData.error,
+          error: extractedData.error
         });
+        
+        if (extractedData.error) {
+          console.error('[TabSense] Extraction error from content script:', extractedData.error);
+        }
+        
+        if (!extractedData.content || extractedData.content.length === 0) {
+          console.warn('[TabSense] ⚠️ No content extracted! Possible reasons:');
+          console.warn('[TabSense] - Page might be JavaScript-rendered (needs wait time)');
+          console.warn('[TabSense] - Content might be behind paywall/authentication');
+          console.warn('[TabSense] - Page structure might be non-standard');
+          console.warn('[TabSense] - Tab might not be fully loaded');
+        }
         
         // Generate adaptive summary using service worker AdaptiveSummarizer
         let summary = extractedData.summary || 'Content extracted';
@@ -1231,16 +2053,19 @@ class TabSenseServiceWorker {
             // Try AI summarization with fallback
             console.log('[TabSense] Attempting AI summarization...');
             const aiResult = await this.aiProviderManager.summarizeWithFallback(
-              extractedData.content.substring(0, 10000),
+              this.getFormatterInstruction() + extractedData.content.substring(0, 10000),
               tab.url
             );
             
-            if (aiResult.success) {
-              summary = aiResult.summary;
-              console.log(`[TabSense] ✅ AI summary from ${aiResult.provider}`);
+            if (aiResult.success && aiResult.summary && aiResult.summary.length > 50) {
+              summary = this.cleanMarkdown(aiResult.summary);
+              console.log(`[TabSense] ✅ AI summary from ${aiResult.provider} (${summary.length} chars)`);
             } else {
-              summary = aiResult.summary;
-              console.log('[TabSense] ⚠️ Using extractive fallback');
+              // Fallback to extractive summary if AI failed or returned empty
+              console.log('[TabSense] ⚠️ AI summary failed or too short, using extractive fallback');
+              const sentences = extractedData.content.split(/[.!?]+/).filter(s => s.trim().length > 10);
+              summary = sentences.slice(0, 5).join('. ') + (sentences.length > 5 ? '...' : '.');
+              summary = this.cleanMarkdown(summary);
             }
           } catch (summaryError) {
             console.error('[TabSense] Adaptive summary failed:', summaryError);
@@ -1274,6 +2099,42 @@ class TabSenseServiceWorker {
           categoryConfidence = urlBased.confidence;
         }
         
+        // Filter relevant images first (store them for later processing)
+        let initialImages = [];
+        if (extractedData.images && Array.isArray(extractedData.images) && extractedData.images.length > 0) {
+          const relevantImages = extractedData.images.filter(img => {
+            // Filter for relevant images (diagrams, charts, etc.)
+            const alt = (img.alt || '').toLowerCase();
+            const title = (img.title || '').toLowerCase();
+            const src = (img.src || '').toLowerCase();
+            const combined = `${alt} ${title} ${src}`;
+            
+            // Check if image is likely a diagram, chart, or educational image
+            const relevantKeywords = [
+              'diagram', 'chart', 'graph', 'figure', 'illustration', 'plot',
+              'visualization', 'schema', 'flowchart', 'map', 'table',
+              'financial', 'trading', 'stock', 'market', 'research', 'study',
+              'academic', 'scientific', 'data', 'analysis', 'results'
+            ];
+            
+            return relevantKeywords.some(keyword => combined.includes(keyword)) ||
+                   (img.width >= 300 && img.height >= 300); // Larger images likely to be content
+          });
+          
+          // Store images without analysis initially (will be processed in background)
+          initialImages = relevantImages.length > 0 
+            ? relevantImages.map(img => ({
+                ...img,
+                analysis: null,
+                suggestedQuestion: null
+              }))
+            : extractedData.images.slice(0, 10).map(img => ({
+                ...img,
+                analysis: null,
+                suggestedQuestion: null
+              }));
+        }
+        
         // Store tab data - use URL as id for uniqueness
         const tabData = {
           id: `${tab.url}-${Date.now()}`,
@@ -1284,6 +2145,7 @@ class TabSenseServiceWorker {
           summary: summary,
           category: finalCategory,
           categoryConfidence: categoryConfidence,
+          extractedImages: initialImages, // Store images initially without analysis
           processed: true,
           timestamp: Date.now()
         };
@@ -1327,11 +2189,42 @@ class TabSenseServiceWorker {
           action: 'TAB_AUTO_PROCESSED',
           data: tabData
         });
+        
+        // Process images in background after tab is stored (allows images to load)
+        if (initialImages.length > 0 && (finalCategory === 'academic' || finalCategory === 'finance')) {
+          console.log(`[TabSense] Scheduling background image analysis for ${initialImages.length} images`);
+          // Process images asynchronously - don't block the main flow
+          this.processImagesInBackground(tabData.id, initialImages, finalCategory, extractedData.title, tab.url)
+            .catch(err => {
+              console.error('[TabSense] Background image processing failed:', err);
+            });
+        }
     } catch (error) {
         console.error('[TabSense] Error extracting content from tab:', error);
+        console.error('[TabSense] Extraction error details:', {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+          tabId: tab.id,
+          url: tab.url,
+          title: tab.title
+        });
       }
     } catch (error) {
       console.error('[TabSense] Error auto-processing tab:', error);
+      console.error('[TabSense] Auto-process error details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        tabId: tab?.id,
+        url: tab?.url
+      });
+    } finally {
+      // Always remove from processing set
+      if (tab?.id) {
+        this.processingTabs.delete(tab.id);
+        console.log('[TabSense] Removed tab from processing set:', tab.id);
+      }
     }
   }
 
@@ -1462,19 +2355,60 @@ class TabSenseServiceWorker {
       const cmResp = await fetch(cmUrl);
       if (!cmResp.ok) break;
       const cmJson = await cmResp.json();
-      (cmJson.items || []).forEach(item => {
-        const s = item.snippet?.topLevelComment?.snippet;
-        if (!s) return;
-        comments.push({
-          id: item.id,
-          text: s.textDisplay || s.textOriginal || '',
-          author: s.authorDisplayName,
-          authorChannelId: s.authorChannelId?.value,
-          likeCount: s.likeCount || 0,
-          publishedAt: s.publishedAt,
-          replyCount: item.snippet?.totalReplyCount || 0
+      // Process comments - detect language and translate non-English comments
+      // Process in batches to avoid overwhelming the API
+      const batchSize = 10;
+      const items = cmJson.items || [];
+      for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize);
+        const commentPromises = batch.map(async (item) => {
+          const s = item.snippet?.topLevelComment?.snippet;
+          if (!s) return null;
+          const commentText = s.textDisplay || s.textOriginal || '';
+          
+          // Detect language and translate if not English
+          let processedText = commentText;
+          let detectedLang = 'en';
+          try {
+            // Quick heuristic check first (avoids API call for obviously English comments)
+            const hasNonLatinChars = /[^\x00-\x7F]/.test(commentText);
+            if (hasNonLatinChars || commentText.length < 20) {
+              const langResult = await this.detectLanguage(commentText);
+              if (langResult.success && langResult.language && langResult.language !== 'en' && langResult.language !== 'und') {
+                detectedLang = langResult.language;
+                // Translate to English if not English (use detected language as source)
+                const translateResult = await this.translateText(commentText, 'en', detectedLang);
+                if (translateResult.success && translateResult.translated && translateResult.translated !== commentText) {
+                  processedText = translateResult.translated;
+                  console.log(`[YouTube] Translated comment from ${detectedLang} to English`);
+                }
+              }
+            }
+          } catch (langError) {
+            // Silently continue with original text on error
+          }
+          
+          return {
+            id: item.id,
+            text: processedText,
+            originalText: commentText,
+            detectedLanguage: detectedLang,
+            author: s.authorDisplayName,
+            authorChannelId: s.authorChannelId?.value,
+            likeCount: s.likeCount || 0,
+            publishedAt: s.publishedAt,
+            replyCount: item.snippet?.totalReplyCount || 0
+          };
         });
-      });
+        
+        const processedBatch = await Promise.all(commentPromises);
+        comments.push(...processedBatch.filter(c => c !== null));
+        
+        // Small delay between batches to avoid rate limits
+        if (i + batchSize < items.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
       pageToken = cmJson.nextPageToken || '';
       console.log('[YouTube] Comments page fetched:', {
         fetched: cmJson.items?.length || 0,
@@ -1485,7 +2419,7 @@ class TabSenseServiceWorker {
     }
     console.log('[YouTube] Finished fetching comments. Total:', comments.length);
 
-    return {
+      return {
       video: {
         id: video.id,
         title: video.snippet.title,
@@ -1510,6 +2444,102 @@ class TabSenseServiceWorker {
       } : null,
       comments
     };
+  }
+
+  // Translate text using Chrome Translator API with fallback
+  async translateText(text, targetLanguage = 'en', sourceLanguage = 'auto') {
+    // First, try Chrome Translator API
+    try {
+      if (typeof Translator !== 'undefined') {
+        const availability = await Translator.availability({
+          sourceLanguage: sourceLanguage,
+          targetLanguage: targetLanguage
+        });
+        if (availability === 'available') {
+          console.log('[TabSense] Using Chrome Translator API');
+          const session = await Translator.create({
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage
+          });
+          const result = await session.translate(text);
+          return { success: true, translated: result, provider: 'chrome' };
+        } else if (availability === 'downloadable') {
+          console.log('[TabSense] Chrome Translator available but needs download');
+        }
+      }
+    } catch (chromeError) {
+      console.log('[TabSense] Chrome Translator not available, falling back:', chromeError.message);
+    }
+    
+    // Fallback to external translation (could use Google Translate API or other)
+    // For now, return original text if Chrome API unavailable
+    return { success: false, translated: text, provider: 'none' };
+  }
+
+  // Detect language using Chrome Language Detector API with fallback
+  async detectLanguage(text) {
+    // First, try Chrome Language Detector API
+    try {
+      if (typeof LanguageDetector !== 'undefined') {
+        const availability = await LanguageDetector.availability();
+        if (availability === 'available') {
+          console.log('[TabSense] Using Chrome Language Detector API');
+          const session = await LanguageDetector.create();
+          const result = await session.detect(text);
+          // Result is an object with language code
+          const languageCode = result.language || result;
+          return { success: true, language: languageCode, provider: 'chrome' };
+        } else if (availability === 'downloadable') {
+          console.log('[TabSense] Chrome Language Detector available but needs download');
+        }
+      }
+    } catch (chromeError) {
+      console.log('[TabSense] Chrome Language Detector not available, using fallback:', chromeError.message);
+    }
+    
+    // Simple fallback: detect common languages from common words
+    const textLower = text.toLowerCase();
+    if (/[\u4e00-\u9fff]/.test(text)) return { success: true, language: 'zh', provider: 'fallback' };
+    if (/[\u0400-\u04ff]/.test(text)) return { success: true, language: 'ru', provider: 'fallback' };
+    if (/[\u0600-\u06ff]/.test(text)) return { success: true, language: 'ar', provider: 'fallback' };
+    if (/[aeiouáéíóúüñ]/.test(textLower) && (textLower.includes('el ') || textLower.includes('la ') || textLower.includes('de ') || textLower.includes('que '))) {
+      return { success: true, language: 'es', provider: 'fallback' };
+    }
+    if (/[aeiouàèìòù]/.test(textLower) && (textLower.includes('il ') || textLower.includes('la ') || textLower.includes('di ') || textLower.includes('che '))) {
+      return { success: true, language: 'it', provider: 'fallback' };
+    }
+    if (/[aeiouäöüß]/.test(textLower) && (textLower.includes('der ') || textLower.includes('die ') || textLower.includes('und ') || textLower.includes('ist '))) {
+      return { success: true, language: 'de', provider: 'fallback' };
+    }
+    return { success: true, language: 'en', provider: 'fallback' }; // Default to English
+  }
+
+  // Generate report using Chrome Proofreader/Writer API with fallback
+  async generateReportWithChromeAI(baseContent) {
+    // First, try Chrome Proofreader API (can be used for writing/formatting)
+    try {
+      if (typeof Proofreader !== 'undefined') {
+        const availability = await Proofreader.availability();
+        if (availability === 'available') {
+          console.log('[TabSense] Using Chrome Proofreader API for report generation');
+          // Use Prompt API for generating the report structure
+          if (typeof Prompt !== 'undefined') {
+            const promptAvailability = await Prompt.availability();
+            if (promptAvailability === 'available') {
+              const session = await Prompt.create();
+              const prompt = `You are a professional report writer. Compose a clear, sectioned Markdown report from the following context. Keep headings (##), use concise paragraphs and bullet points, and include a short concluding Insight. Avoid raw URLs in the body; add a Sources section at the end if needed.\n\nCONTEXT:\n${baseContent}\n\nREPORT:`;
+              const report = await session.prompt(prompt, { maxOutputTokens: 2000 });
+              return { success: true, report, provider: 'chrome' };
+            }
+          }
+        }
+      }
+    } catch (chromeError) {
+      console.log('[TabSense] Chrome Proofreader/Prompt API not available for report, falling back to external providers');
+    }
+    
+    // Fallback to external AI
+    return { success: false, report: null, provider: 'none' };
   }
 
   // Simple sentiment analysis for comment text using keyword heuristics
@@ -1661,6 +2691,173 @@ class TabSenseServiceWorker {
     return lines.join('\n');
   }
 
+  // Analyze images using AI (Chrome Prompt API or external AI)
+  async analyzeImages(images, category, pageTitle) {
+    console.log(`[TabSense] analyzeImages: Analyzing ${images.length} images for category: ${category}`);
+    
+    const analyzed = [];
+    
+    for (const image of images.slice(0, 5)) { // Limit to 5 images to avoid rate limits
+      try {
+        // Build category-specific prompt
+        let prompt = '';
+        if (category === 'finance') {
+          prompt = `Analyze this financial chart/image from "${pageTitle}". 
+
+Please identify:
+- Chart type (line, bar, candlestick, pie, etc.)
+- Key data points and trends shown
+- Time period covered
+- Important indicators or patterns visible
+- Market implications or insights
+
+Provide a concise analysis (2-3 sentences) and suggest ONE specific question a user might ask about this chart (e.g., "What does this chart indicate about market trends?" or "Explain the relationship between these data points").`;
+        } else if (category === 'academic') {
+          prompt = `Analyze this academic diagram/image from "${pageTitle}".
+
+Please identify:
+- Main components/elements shown
+- Relationships between elements
+- Key concepts or processes illustrated
+- Any mathematical formulas, scientific notation, or technical details
+- Educational value
+
+Provide a concise analysis (2-3 sentences) and suggest ONE specific question a user might ask about this diagram (e.g., "Break down this diagram step by step" or "Explain the relationship between these components").`;
+        } else {
+          prompt = `Analyze this image from "${pageTitle}". Identify key elements, concepts, or data shown. Provide a brief analysis (1-2 sentences) and suggest ONE question about this image.`;
+        }
+        
+        // Try to analyze using external AI (Gemini Vision or Claude Vision)
+        // For now, we'll use text-based analysis with image metadata
+        // Note: Full vision API would require fetching image and sending to API
+        const imageInfo = {
+          src: image.src,
+          alt: image.alt || '',
+          title: image.title || '',
+          context: image.context || '',
+          width: image.width || 0,
+          height: image.height || 0
+        };
+        
+        // Build context string from image metadata
+        const imageContext = `Image info:
+- Alt text: ${imageInfo.alt}
+- Title: ${imageInfo.title}
+- Context: ${imageInfo.context}
+- Dimensions: ${imageInfo.width}x${imageInfo.height}`;
+        
+        const fullPrompt = `${prompt}\n\n${imageContext}\n\nAnalysis:`;
+        
+        // Use AI to generate analysis (Chrome AI first, then fallback)
+        try {
+          const result = await this.aiProviderManager.answerQuestionWithFallback(fullPrompt);
+          
+          if (result.success && result.answer) {
+            const answer = result.answer.trim();
+            
+            // Extract suggested question (usually at the end)
+            let analysis = answer;
+            let suggestedQuestion = null;
+            
+            // Try to extract question from answer
+            const questionMatch = answer.match(/(?:question|ask|wonder)[:;]?\s*(.+?)(?:\.|$)/i);
+            if (questionMatch) {
+              suggestedQuestion = questionMatch[1].trim().replace(/["']/g, '');
+              analysis = answer.replace(questionMatch[0], '').trim();
+            } else {
+              // Generate a default question
+              if (category === 'finance') {
+                suggestedQuestion = 'What does this chart indicate about market trends and data?';
+              } else if (category === 'academic') {
+                suggestedQuestion = 'Break down this diagram and explain its key components';
+              } else {
+                suggestedQuestion = 'What does this image show?';
+              }
+            }
+            
+            analyzed.push({
+              ...imageInfo,
+              analysis: analysis,
+              suggestedQuestion: suggestedQuestion,
+              category: category
+            });
+            
+            console.log(`[TabSense] ✅ Analyzed image ${analyzed.length}/${images.length}`);
+          } else {
+            // Fallback: store image without analysis
+            analyzed.push({
+              ...imageInfo,
+              analysis: null,
+              suggestedQuestion: category === 'finance' ? 'What does this chart show?' : 'What does this diagram illustrate?',
+              category: category
+            });
+          }
+        } catch (aiError) {
+          console.error('[TabSense] AI analysis failed for image:', aiError);
+          // Store image with default question
+          analyzed.push({
+            ...imageInfo,
+            analysis: null,
+            suggestedQuestion: category === 'finance' ? 'What does this chart show?' : 'What does this diagram illustrate?',
+            category: category
+          });
+        }
+        
+        // Small delay to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+      } catch (error) {
+        console.error('[TabSense] Error analyzing individual image:', error);
+        analyzed.push({
+          ...image,
+          analysis: null,
+          suggestedQuestion: 'What does this image show?',
+          category: category
+        });
+      }
+    }
+    
+    return analyzed;
+  }
+
+  // Process images in background after tab is stored
+  async processImagesInBackground(tabId, images, category, pageTitle, url) {
+    try {
+      console.log(`[TabSense] Starting background image analysis for tab ${tabId}`);
+      
+      // Wait a bit for images to fully load
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Analyze images
+      const analyzedImages = await this.analyzeImages(images, category, pageTitle);
+      
+      if (analyzedImages.length > 0) {
+        // Update the tab in storage with analyzed images
+        const result = await chrome.storage.local.get(['multi_tab_collection']);
+        const existingTabs = result.multi_tab_collection || [];
+        const tabIndex = existingTabs.findIndex(t => t.id === tabId);
+        
+        if (tabIndex >= 0) {
+          existingTabs[tabIndex].extractedImages = analyzedImages;
+          await chrome.storage.local.set({ multi_tab_collection: existingTabs });
+          console.log(`[TabSense] ✅ Updated tab ${tabId} with ${analyzedImages.length} analyzed images`);
+          
+          // Broadcast update to UI
+          this.broadcastMessage({
+            action: 'TAB_IMAGES_ANALYZED',
+            data: {
+              tabId: tabId,
+              extractedImages: analyzedImages
+            }
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[TabSense] Background image processing error:', error);
+      throw error;
+    }
+  }
+
   async processYouTubeTab(tab) {
     const originalUrl = tab.url;
     const canonicalUrl = this.normalizeYouTubeUrl(originalUrl);
@@ -1713,10 +2910,10 @@ class TabSenseServiceWorker {
       } catch {}
       try {
         const aiResult = await this.aiProviderManager.summarizeWithFallback(
-          content,
+          this.getFormatterInstruction() + content,
           canonicalUrl
         );
-        summary = aiResult.summary;
+        summary = this.cleanMarkdown(aiResult.summary);
         console.log('[YouTube] Summary generated. length:', summary?.length || 0);
       } catch (e) {
         console.warn('[YouTube] Summarization failed, using description fallback');
@@ -1736,10 +2933,10 @@ class TabSenseServiceWorker {
       content = `VIDEO TITLE: ${title}\nURL: ${canonicalUrl}`;
       try {
         const aiResult = await this.aiProviderManager.summarizeWithFallback(
-          content,
+          this.getFormatterInstruction() + content,
           canonicalUrl
         );
-        summary = aiResult.summary;
+        summary = this.cleanMarkdown(aiResult.summary);
         console.log('[YouTube] Summary generated (basic). length:', summary?.length || 0);
       } catch {
         summary = title;
@@ -1788,9 +2985,9 @@ class TabSenseServiceWorker {
 
   async handlePing(payload, sender) {
     console.log('[TabSense] PING received');
-          return {
-            success: true,
-            data: {
+      return {
+        success: true,
+        data: {
         pong: true, 
       timestamp: Date.now(),
         initialized: this.initialized 
@@ -1800,7 +2997,7 @@ class TabSenseServiceWorker {
 
   async handleGetStatus(payload, sender) {
     console.log('[TabSense] GET_STATUS received');
-        return {
+      return {
           success: true,
             data: {
         status: 'ready',
@@ -1941,7 +3138,7 @@ class TabSenseServiceWorker {
         await chrome.storage.local.set({ archive_conversations: conversations });
         console.log('[TabSense] ✅ Updated conversation:', title || conversations[conversationIndex].title);
         return { success: true };
-      } else {
+        } else {
         console.log('[TabSense] Conversation not found, creating new one');
         // Create new conversation if not found
         const newConversationId = conversationId || `conv-${Date.now()}`;
@@ -1984,7 +3181,7 @@ class TabSenseServiceWorker {
       
       await chrome.storage.local.set({ archive_conversations: filtered });
       return { success: true };
-    } catch (error) {
+      } catch (error) {
       console.error('[TabSense] Error deleting conversation:', error);
       return { success: false, error: error.message };
     }
@@ -2124,7 +3321,7 @@ class TabSenseServiceWorker {
     try {
       if (!text) return text;
       let out = text;
-  
+
       // 🚫 Remove metadata tokens like "Document", "Context", "Claim Source"
       out = out.replace(/\b(Document|Context|Claim Source)\b\.?/gi, '');
   
@@ -2263,6 +3460,43 @@ class TabSenseServiceWorker {
       console.log('[TabSense] Question:', question);
       console.log('[TabSense] Context tabs:', context?.length || 0);
       console.log('[TabSense] Conversation messages:', messages?.length || 0);
+
+      // Quick command intent: allow natural language triggers for export/report
+      const qLower = (question || '').toLowerCase();
+      let primaryTab = context && context.length > 0 ? context[0] : null;
+      if (primaryTab) {
+        if (/^\s*(export\s+youtube\s+comments|export\s+comments|download\s+comments|export\s+csv|download\s+csv)\b/.test(qLower)) {
+          console.log('[TabSense] Command detected: EXPORT_YOUTUBE_COMMENTS');
+          const res = await this.handleExportYouTubeComments({ tabUrl: primaryTab.url, id: primaryTab.id }, sender);
+          if (res.success) {
+            return { success: true, data: { answer: `Export started: ${res.data.filename}`, sources: [], provider: 'command', confidence: 1 } };
+          }
+          return { success: false, error: res.error || 'Failed to export comments' };
+        }
+        if (/^\s*(download\s+report|export\s+report|generate\s+report)\b/.test(qLower)) {
+          console.log('[TabSense] Command detected: EXPORT_REPORT');
+          const res = await this.handleExportReport({ tabUrl: primaryTab.url, id: primaryTab.id }, sender);
+          if (res.success) {
+            return { success: true, data: { answer: `Report generated: ${res.data.filename}`, sources: [], provider: 'command', confidence: 1 } };
+          }
+          return { success: false, error: res.error || 'Failed to generate report' };
+        }
+      } else {
+        // No primary context provided - try last processed YouTube tab for export commands
+        if (/^\s*(export\s+youtube\s+comments|export\s+comments|download\s+comments|export\s+csv|download\s+csv)\b/.test(qLower)) {
+          console.log('[TabSense] Command detected without context: attempting latest YouTube tab');
+          const store = await chrome.storage.local.get(['multi_tab_collection']);
+          const coll = store.multi_tab_collection || [];
+          const latestYt = [...coll].reverse().find(t => t.category === 'youtube' && t.youtubeData && Array.isArray(t.youtubeData.comments) && t.youtubeData.comments.length > 0);
+          if (latestYt) {
+            const res = await this.handleExportYouTubeComments({ tabUrl: latestYt.url, id: latestYt.id }, sender);
+            if (res.success) {
+              return { success: true, data: { answer: `Export started: ${res.data.filename}`, sources: [], provider: 'command', confidence: 1 } };
+            }
+            return { success: false, error: res.error || 'Failed to export comments' };
+          }
+        }
+      }
       
       // For now, create a context-aware response
       if (context && context.length > 0) {
@@ -2335,7 +3569,7 @@ If no verifiable claims are found, respond with "NO_CLAIMS".`;
               needsVerification = extractedClaims.length > 0;
               
               console.log('[TabSense] ✅ Extracted claims:', extractedClaims.length, extractedClaims);
-            } else {
+      } else {
               console.log('[TabSense] No verifiable claims found in document');
             }
           }
@@ -2526,7 +3760,7 @@ EXAMPLES OF GOOD SOURCE ATTRIBUTION:
         if (cat === 'news') {
           categoryGuidance = `\nNEWS FORMAT:\n- ### 📰 **Headline Context**\n- ### 📊 **Key Facts**\n- ### 🌍 **What It Means**\n- ### 🧠 **Insight**\n`;
         } else if (cat === 'blog') {
-          categoryGuidance = `\nBLOG FORMAT:\n- ### 🧭 **Author’s Thesis**\n- ### 🧩 **Argument Chain**\n- ### 🔍 **Evidence & Counterpoints**\n- ### 🧠 **Insight**\n`;
+          categoryGuidance = `\nBLOG FORMAT:\n- ### 🧭 **Author's Thesis**\n- ### 🧩 **Argument Chain**\n- ### 🔍 **Evidence & Counterpoints**\n- ### 🧠 **Insight**\n`;
         } else if (cat === 'reference') {
           categoryGuidance = `\nREFERENCE FORMAT:\n- ### 📖 **Definition**\n- ### 🧱 **Core Components**\n- ### 🧪 **Examples**\n- ### 🧠 **Insight**\n`;
         }
@@ -2588,33 +3822,33 @@ CRITICAL:
 
 OUTPUT EXAMPLE (copy the structure, not the content):
 
-Xi Jinping’s Power Consolidation and Its Ripple Effects
+Xi Jinping's Power Consolidation and Its Ripple Effects
 
-China’s political architecture has entered a new era under Xi Jinping, whose anti-corruption purges and loyalty-driven promotions have consolidated his personal control — effectively dismantling Deng Xiaoping’s decentralized legacy.
+China's political architecture has entered a new era under Xi Jinping, whose anti-corruption purges and loyalty-driven promotions have consolidated his personal control — effectively dismantling Deng Xiaoping's decentralized legacy.
 
 🛠️ Strategies Behind the Power Shift
 
-• Targeted Purges: Xi’s sweeping anti-corruption campaigns removed rivals while presenting him as a moral reformer {csmonitor.com}. This “self-revolution” narrative re-frames power consolidation as patriotic duty.
+• Targeted Purges: Xi's sweeping anti-corruption campaigns removed rivals while presenting him as a moral reformer {csmonitor.com}. This "self-revolution" narrative re-frames power consolidation as patriotic duty.
 • Selective Promotions: Loyalists now fill key leadership posts across ministries and provinces, tightening ideological alignment and accelerating decision-making {Document}.
 
 Together, these twin levers — purging and promoting — have built the most vertically integrated power structure in modern Chinese politics.
 
 🌍 Governance and Policy Consequences
 
-• Centralized Authority: Deng’s model of distributed leadership has yielded to a personality-centric system {project-syndicate.org}.
+• Centralized Authority: Deng's model of distributed leadership has yielded to a personality-centric system {project-syndicate.org}.
 • Efficiency vs. Fragility: Rapid policy execution now coexists with greater risk — fewer institutional guardrails, faster feedback loops {asiasociety.org}.
-• Global Perception: Analysts describe this phase as a return to “Stalin-logic politics” — a blend of fear-based loyalty and high administrative precision {Reuters}.
+• Global Perception: Analysts describe this phase as a return to "Stalin-logic politics" — a blend of fear-based loyalty and high administrative precision {Reuters}.
 
 💬 Public Sentiment Snapshot
 
-• Admiration: Some citizens and commentators praise Xi’s strength and stability narrative.
+• Admiration: Some citizens and commentators praise Xi's strength and stability narrative.
 • Caution: Others fear the erosion of open debate and institutional diversity.
 • Defense: A minority credits the approach for enhancing security and raising living standards.
 
 💡 Insight: The Paradox of Stability
 
-Xi’s governance philosophy fuses control with continuity — aiming for long-term stability through personal dominance. Yet history warns that the tighter a system centralizes, the less adaptive it becomes.
-Whether this model ensures enduring order or sows the seeds of future volatility will define the next chapter of China’s political evolution.
+Xi's governance philosophy fuses control with continuity — aiming for long-term stability through personal dominance. Yet history warns that the tighter a system centralizes, the less adaptive it becomes.
+Whether this model ensures enduring order or sows the seeds of future volatility will define the next chapter of China's political evolution.
 
 Answer:`;
         
@@ -2691,7 +3925,7 @@ Answer:`;
             
             return {
               success: true,
-              data: {
+        data: {
                 answer: cleaned,
                 sources: allSources,
                 provider: providerDisplay,
@@ -3581,9 +4815,18 @@ Answer:`;
       // Try AI-based title generation if pattern extraction failed
       try {
         console.log('[TabSense] Attempting AI-based title generation...');
+        // Get content for AI generation - use first assistant message or all messages
+        let contentForAI = '';
+        if (firstAssistantMessage && firstAssistantMessage.content) {
+          contentForAI = firstAssistantMessage.content;
+        } else {
+          // Fallback: combine all messages
+          contentForAI = messages.map(m => m.content).join('\n');
+        }
+        
         const aiPrompt = `Based on this summary content, generate a concise, descriptive title (max 60 characters, no prefixes like "Summary:" or "Title:"). Just return the title text:
 
-${content.substring(0, 1000)}
+${contentForAI.substring(0, 1000)}
 
 Title:`;
         
@@ -3637,7 +4880,7 @@ Title:`;
       
       // Generate questions using AI
       try {
-        const prompt = `Based on this ${category || 'article'} summary about "${title || 'the content'}", generate 6 thoughtful questions a user might want to ask. Format as simple bullet points without numbering:\n\n${summary.substring(0, 1000)}\n\nQuestions:`;
+        const prompt = `You are generating category-wide questions for ${category || 'content'}. Use the FULL breadth of the material below (it may contain multiple tabs). Produce 6 diverse, high-signal questions that cover different angles (facts, implications, comparisons, critics, what-if, evidence). Do NOT focus on a single source. Avoid near-duplicates. Format as simple bullets (no numbering), one question per line.\n\nTITLE: ${title || 'N/A'}\nCATEGORY: ${category || 'generic'}\nCONSOLIDATED CONTEXT (multiple tabs possible):\n${summary.substring(0, 2000)}\n\nQuestions:`;
         
         const questionsResult = await this.aiProviderManager.summarizeWithFallback(
           prompt,

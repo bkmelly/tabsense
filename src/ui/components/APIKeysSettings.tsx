@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, ChevronDown, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, ChevronDown, CheckCircle, XCircle, Trash2, Copy } from 'lucide-react';
 import { useToast } from './Toast';
 import ConfirmationDialog from './ConfirmationDialog';
 
@@ -76,6 +76,24 @@ const otherAPIs: OtherAPI[] = [
     enabled: false,
     cost: "Paid (~$5 per 1,000 queries)",
     category: "Search"
+  },
+  {
+    id: "googlesheets",
+    name: "Google Sheets API",
+    description: "Export YouTube comments and data directly to Google Sheets. Requires OAuth2 authentication via Chrome identity API.",
+    placeholder: "OAuth2 - Configure via Chrome Identity",
+    enabled: false,
+    cost: "Free (with quota)",
+    category: "Export"
+  },
+  {
+    id: "googledocs",
+    name: "Google Docs API",
+    description: "Generate reports directly to Google Docs. Requires OAuth2 authentication via Chrome identity API.",
+    placeholder: "OAuth2 - Configure via Chrome Identity",
+    enabled: false,
+    cost: "Free (with quota)",
+    category: "Export"
   }
 ];
 
@@ -177,7 +195,9 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
     newsapi: false, // Also support newsapi key name
     twitter: false,
     github: false,
-    serper: false
+    serper: false,
+    googlesheets: false,
+    googledocs: false
   });
   const [selectedOtherApi, setSelectedOtherApi] = useState<string>("youtube");
   
@@ -185,6 +205,25 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
   const [inlineErrorShown, setInlineErrorShown] = useState<boolean>(false);
   const [showOtherDropdown, setShowOtherDropdown] = useState<boolean>(false);
   const otherDropdownRef = useRef<HTMLDivElement>(null);
+  const [redirectUri, setRedirectUri] = useState<string>('');
+  const [extensionId, setExtensionId] = useState<string>('');
+  
+  // Get redirect URI on mount for Google APIs and extract extension ID
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.identity) {
+      try {
+        const uri = chrome.identity.getRedirectURL();
+        setRedirectUri(uri);
+        // Extract extension ID from redirect URI: https://<extension-id>.chromiumapp.org/
+        const match = uri.match(/https:\/\/([a-z0-9]+)\.chromiumapp\.org/);
+        if (match && match[1]) {
+          setExtensionId(match[1]);
+        }
+      } catch (e) {
+        console.error('[APIKeysSettings] Could not get redirect URI:', e);
+      }
+    }
+  }, []);
   
   // Confirmation dialog state
   const [confirmationDialog, setConfirmationDialog] = useState<{
@@ -706,34 +745,138 @@ const APIKeysSettings: React.FC<APIKeysSettingsProps> = ({
               <span><strong>Category:</strong> {selectedOtherApiData.category}</span>
             </div>
             
-            {/* API Key Input */}
-            <div className="relative">
-              <input
-                type={showOtherKeys[selectedOtherApiData.id] ? 'text' : 'password'}
-                value={otherApiKeys[selectedOtherApiData.id] || ''}
-                onChange={(e) => handleOtherApiKeyChange(selectedOtherApiData.id, e.target.value)}
-                placeholder={selectedOtherApiData.placeholder}
-                disabled={!otherApiEnabled[selectedOtherApiData.id]}
-                className={`w-full px-3 py-2 border border-gray-300 rounded-md text-sm transition-colors ${
-                  otherApiEnabled[selectedOtherApiData.id] 
-                    ? 'bg-gray-50 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500' 
-                    : 'bg-gray-100 text-gray-400 placeholder-gray-400 cursor-not-allowed'
-                }`}
-              />
-              
-              {/* Show/Hide Toggle */}
-              <button
-                onClick={() => toggleOtherKeyVisibility(selectedOtherApiData.id)}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                disabled={!otherApiEnabled[selectedOtherApiData.id]}
-              >
-                {showOtherKeys[selectedOtherApiData.id] ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
-              </button>
-            </div>
+            {/* OAuth APIs - Special handling for Google Sheets/Docs */}
+            {(selectedOtherApiData.id === 'googlesheets' || selectedOtherApiData.id === 'googledocs') ? (
+              <div className="space-y-3">
+                <div className="p-3 border border-blue-200 rounded-md bg-blue-50">
+                  <p className="text-sm text-blue-800 mb-2">
+                    Google APIs require OAuth2 authentication via Chrome Identity API. You'll need to configure a Google Client ID first.
+                  </p>
+                  {/* Google Client ID input */}
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-blue-900 mb-1">Google Client ID (OAuth2)</label>
+                    <input
+                      type="text"
+                      placeholder="Enter your Google OAuth2 Client ID"
+                      className="w-full px-3 py-2 border border-blue-300 rounded-md text-sm"
+                      onChange={async (e) => {
+                        const value = e.target.value.trim();
+                        if (value) {
+                          await sendMessageToServiceWorker({
+                            action: 'SAVE_API_KEY',
+                            provider: 'google_client_id',
+                            apiKey: value,
+                            type: 'other'
+                          });
+                        }
+                      }}
+                    />
+                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded text-xs">
+                      <p className="text-blue-900 font-medium mb-2">Setup Instructions:</p>
+                      <ol className="list-decimal list-inside space-y-2 text-blue-800 mb-3">
+                        <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="underline font-medium">Google Cloud Console → APIs & Services → Credentials</a></li>
+                        <li>Enable these APIs first:
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li>Google Sheets API (for Sheets export)</li>
+                            <li>Google Docs API (for Docs export)</li>
+                          </ul>
+                        </li>
+                        <li>Create OAuth 2.0 Client ID:
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li>Application type: <strong>Web application</strong> (NOT Chrome Extension)</li>
+                            <li>Name: TabSense (or any name)</li>
+                          </ul>
+                        </li>
+                        <li className="space-y-2">
+                          <div className="font-medium text-blue-900">Add this EXACT redirect URI (copy the full URL below):</div>
+                          <div className="bg-white border border-blue-300 rounded p-2 flex items-center gap-2">
+                            <code className="flex-1 break-all text-xs font-mono text-blue-900">{redirectUri || `https://${extensionId || '<extension-id>'}.chromiumapp.org/`}</code>
+                            {redirectUri && (
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(redirectUri);
+                                  showSuccess('Copied', 'Redirect URI copied to clipboard');
+                                }}
+                                className="flex-shrink-0 p-1.5 hover:bg-blue-200 rounded transition-colors"
+                                title="Copy full redirect URI"
+                              >
+                                <Copy className="w-4 h-4 text-blue-600" />
+                              </button>
+                            )}
+                          </div>
+                          <div className="text-yellow-700 bg-yellow-50 p-1.5 rounded text-xs font-medium">
+                            ⚠️ Must match EXACTLY including the trailing slash: <code className="bg-yellow-100 px-1 rounded">/</code>
+                          </div>
+                        </li>
+                        <li>Copy the <strong>Client ID</strong> (not Client Secret) and paste it in the field above</li>
+                      </ol>
+                      <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded">
+                        <p className="text-green-800 font-medium mb-1">✅ Quick Checklist:</p>
+                        <ul className="text-green-700 space-y-1 text-xs">
+                          <li>✓ Application type: <strong>Web application</strong></li>
+                          <li>✓ Redirect URI added (copy from above)</li>
+                          <li>✓ Client ID pasted in the field above</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await sendMessageToServiceWorker({
+                          action: 'GOOGLE_OAUTH_AUTH',
+                          service: selectedOtherApiData.id === 'googlesheets' ? 'sheets' : 'docs'
+                        });
+                        if (response.success) {
+                          showSuccess('Authenticated', `Successfully connected to ${selectedOtherApiData.name}`);
+                        } else {
+                          showError('Authentication Failed', response.error || 'Could not authenticate with Google');
+                        }
+                      } catch (error) {
+                        showError('Error', 'Failed to authenticate');
+                      }
+                    }}
+                    disabled={!otherApiEnabled[selectedOtherApiData.id]}
+                    className={`px-4 py-2 text-sm rounded-md transition-colors ${
+                      otherApiEnabled[selectedOtherApiData.id]
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
+                    Authenticate with Google
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* API Key Input - For non-OAuth APIs */
+              <div className="relative">
+                <input
+                  type={showOtherKeys[selectedOtherApiData.id] ? 'text' : 'password'}
+                  value={otherApiKeys[selectedOtherApiData.id] || ''}
+                  onChange={(e) => handleOtherApiKeyChange(selectedOtherApiData.id, e.target.value)}
+                  placeholder={selectedOtherApiData.placeholder}
+                  disabled={!otherApiEnabled[selectedOtherApiData.id]}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-md text-sm transition-colors ${
+                    otherApiEnabled[selectedOtherApiData.id] 
+                      ? 'bg-gray-50 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500' 
+                      : 'bg-gray-100 text-gray-400 placeholder-gray-400 cursor-not-allowed'
+                  }`}
+                />
+                
+                {/* Show/Hide Toggle */}
+                <button
+                  onClick={() => toggleOtherKeyVisibility(selectedOtherApiData.id)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  disabled={!otherApiEnabled[selectedOtherApiData.id]}
+                >
+                  {showOtherKeys[selectedOtherApiData.id] ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

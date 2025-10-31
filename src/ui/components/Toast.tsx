@@ -71,11 +71,11 @@ const ToastComponent: React.FC<ToastProps> = ({ toast, onRemove }) => {
   return (
     <div
       className={`
-        fixed top-4 right-4 z-50 max-w-sm w-full
+        fixed bottom-4 left-4 z-50 max-w-sm w-full
         bg-white border border-gray-200 rounded-lg shadow-lg
         border-l-4 ${getBorderColor()}
         transform transition-all duration-200 ease-in-out
-        ${isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}
+        ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}
       `}
     >
       <div className="p-3">
@@ -114,7 +114,7 @@ interface ToastContainerProps {
 
 export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onRemove }) => {
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-2">
+    <div className="fixed bottom-4 left-4 z-50 space-y-2">
       {toasts.map((toast) => (
         <ToastComponent
           key={toast.id}
