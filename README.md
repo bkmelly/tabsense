@@ -176,37 +176,24 @@ graph TB
 
 ## 📊 Roadmap
 
-### Phase 1: MVP ✅ (Completed)
-- [x] Basic Chrome extension structure
-- [x] Text summarization (Chrome Summarizer API + Cloud fallback)
-- [x] Cross-tab Q&A with context awareness
-- [x] Smart page categorization (news, blog, reference, academic, finance, YouTube)
-- [x] Conversation archiving and history
-- [x] Chrome Web Store ready
+### Completed Features ✅
+- Chrome extension with Manifest V3
+- Text summarization using Chrome Summarizer API with cloud fallback
+- Cross-tab Q&A with context awareness
+- Smart page categorization (news, blog, reference, academic, finance, YouTube)
+- Image analysis with Chrome Prompt API & Gemini Vision
+- YouTube integration (metadata, comments, sentiment analysis)
+- Export to CSV, Excel, Google Sheets, Google Docs
+- Markdown report generation
+- Category-wide Q&A
+- Conversation archiving
+- Image extraction and visualization
 
-### Phase 2: Enhanced Features ✅ (Completed)
-- [x] Image analysis with Chrome Prompt API & Gemini Vision
-- [x] YouTube integration with Data API (comments, metadata, sentiment)
-- [x] Comprehensive YouTube summaries with key takeaways and comment analysis
-- [x] Export to CSV, Excel, Google Sheets, Google Docs
-- [x] Markdown report generation with citations and formatting
-- [x] Category-wide Q&A across multiple tabs
-- [x] Image extraction and visualization with horizontal scrolling
-- [x] Chrome AI model download progress indicators
-- [x] Enhanced categorization (news, blog, reference, academic, finance, YouTube)
-- [x] Retry mechanism for failed AI responses
-- [x] Conversation archiving with image preservation
-- [x] Inline image display for image-related questions
-- [ ] Audio transcription
-- [ ] Voice input/output
-
-### Phase 3: Advanced Features (Planned)
-- [ ] Multi-browser support (Firefox, Edge)
-- [ ] Offline mode with local AI
-- [ ] Team collaboration & sharing
-- [ ] Enterprise features (SSO, analytics)
-- [ ] API platform for integrations
-- [ ] Browser extension marketplace distribution
+### Upcoming Features
+- Audio transcription and voice input/output
+- Enhanced error handling and performance optimizations
+- Additional export formats
+- Improved UI/UX based on user feedback
 
 ## 🤝 Contributing
 
