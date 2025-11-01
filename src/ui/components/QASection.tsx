@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Send, Loader2, Share2, MoreVertical, Copy, Trash2, Settings, History, 
+  Send, Loader2, Share2, Copy, Trash2, Settings, History, 
   Eye, EyeOff, Lightbulb, ExternalLink, Smile, ChevronDown, Brain, BarChart3, FileText, Archive, Sparkles, X, Image as ImageIcon
 } from 'lucide-react';
 import { Input } from './ui/input';
@@ -249,14 +249,6 @@ const QASection: React.FC<QASectionProps> = ({
                     <Eye className="h-4 w-4" />
                   </Button>
                 )}
-                  <Button 
-                    size="icon"
-                    variant="ghost"
-                  onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    className="h-10 w-10 hover:bg-muted/50"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
                 <Button 
                   size="icon"
                   variant="ghost"

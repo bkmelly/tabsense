@@ -15,29 +15,42 @@
 
 ## 🎯 What is TabSense?
 
-TabSense transforms your browsing experience by providing intelligent assistance directly in Chrome. Instead of switching between tabs and external AI tools, TabSense brings AI capabilities to your browser.
+TabSense transforms your browsing experience by providing intelligent assistance directly in Chrome. It combines Chrome's built-in AI capabilities with smart content analysis to deliver comprehensive summaries, cross-tab Q&A, image analysis, and powerful export options—all without leaving your browser.
 
-**The Problem**: Users constantly switch between Chrome and ChatGPT/AI tools for summaries, translations, and analysis.
+**The Problem**: Users constantly switch between Chrome and external AI tools for summaries, translations, and analysis. This context switching disrupts workflow and requires managing multiple services.
 
-**The Solution**: TabSense integrates AI directly into Chrome, eliminating context switching and making browsing self-contained.
+**The Solution**: TabSense integrates AI directly into Chrome, prioritizing on-device processing with Chrome's built-in AI while seamlessly falling back to cloud APIs when needed. This eliminates context switching and makes browsing truly self-contained.
 
 ## ✨ Core Features
 
 ### 🧠 Multi-Tab Intelligence
-- **Smart Summarization**: Automatically summarize web pages and articles
-- **Cross-Tab Analysis**: Ask questions across multiple open tabs
+- **Smart Summarization**: Automatically summarize web pages and articles with category-specific formatting
+- **Cross-Tab Analysis**: Ask questions across multiple open tabs or within specific categories
+- **Category-Wide Q&A**: Query data across all tabs in categories like "news", "academic", "finance", or "YouTube"
 - **Consolidated Overview**: Get insights from all your open tabs at once
 
+### 🎯 Smart Categorization
+- **AI-Powered Classification**: Automatically categorizes tabs as news, blog, reference, academic, finance, YouTube
+- **Content-Based Analysis**: Uses page content, not just URLs, for accurate categorization
+- **Category Filtering**: Filter tabs by category for focused analysis
+
 ### 🔧 AI-Powered Tools
-- **🌐 Translation**: Instant translation of foreign content
-- **✍️ Proofreading**: AI-powered writing assistance
-- **🖼️ Image Analysis**: Explain charts, graphs, and images
-- **🎙️ Audio Transcription**: Convert audio/video to text
+- **🌐 Translation**: Instant translation using Chrome Translator API with cloud fallback
+- **✍️ Writing Assistance**: AI-powered proofreading and writing using Chrome Proofreader API
+- **🖼️ Image Analysis**: Analyze diagrams, charts, and images using Chrome Prompt API & Gemini Vision
+- **📊 YouTube Integration**: Extract metadata, comments, and generate comprehensive summaries with sentiment analysis
+
+### 💾 Export & Share
+- **Multiple Formats**: Export to CSV, Excel (.xls), Google Sheets, or Markdown reports
+- **Google Integration**: Direct export to Google Sheets and Google Docs via OAuth2
+- **Sentiment Analysis**: YouTube comments categorized by sentiment with visual indicators
+- **Rich Reports**: Formatted Markdown reports with citations and sources
 
 ### 🔒 Privacy & Performance
-- **Local Processing**: Uses Chrome's built-in AI (Gemini Nano)
-- **No External APIs**: Your data stays on your device
+- **Chrome Built-in AI First**: Prioritizes Chrome's on-device AI (Summarizer, Prompt, Translator, Language Detector, Gemini Nano)
+- **Smart Fallback**: Seamlessly falls back to cloud APIs (Gemini, OpenAI, Anthropic) when needed
 - **Fast & Efficient**: Background processing without slowing down browsing
+- **Model Download Progress**: Visual indicators show when Chrome AI models are downloading
 
 ## 🎯 Perfect For
 
@@ -68,14 +81,27 @@ npm run build
 # 2. Enable "Developer mode"
 # 3. Click "Load unpacked"
 # 4. Select the 'dist' folder
+
+# Configure API Keys (Optional)
+# 1. Click the TabSense icon
+# 2. Go to Settings (gear icon)
+# 3. Add API keys for external AI providers (Gemini, OpenAI, Anthropic)
+# 4. Add YouTube Data API key for enhanced YouTube features
+# 5. Enable Google Sheets/Docs integration for direct exports
 ```
 
 ### Usage
 1. **Open multiple tabs** with content you want to analyze
 2. **Click the TabSense icon** to open the sidebar
-3. **Watch AI summarize** your tabs automatically
-4. **Ask questions** like "What are the main themes across these articles?"
-5. **Export results** to Markdown, Google Docs, or clipboard
+3. **Watch AI summarize** your tabs automatically with category-specific formatting
+4. **Ask questions** like:
+   - "What are the main themes across these articles?" (cross-tab)
+   - "Summarize all news articles" (category-wide)
+   - "Describe the chart in this finance article" (image analysis)
+   - "What do YouTube comments say about this video?" (YouTube analysis)
+5. **Export results** to CSV, Excel, Google Sheets, Google Docs, or Markdown
+6. **View images** by clicking the image icon when available
+7. **Browse archive** to access previous conversations and summaries
 
 ## 🏗️ Architecture
 
@@ -84,27 +110,69 @@ graph TB
     A[Chrome Extension] --> B[Background Service Worker]
     A --> C[Content Scripts]
     A --> D[Sidebar UI]
-    A --> E[Popup UI]
     
-    B --> F[AI Adapter]
+    B --> F[AI Provider Manager]
     F --> G[Chrome Built-in AI]
-    F --> H[Cloud Fallback]
+    F --> H[Cloud Fallback APIs]
     
-    C --> I[Text Extraction]
-    C --> J[Content Analysis]
+    G --> G1[Summarizer API]
+    G --> G2[Prompt API]
+    G --> G3[Translator API]
+    G --> G4[Language Detector]
+    G --> G5[Gemini Nano]
     
-    D --> K[Summary Display]
-    D --> L[Q&A Interface]
-    D --> M[Export Options]
+    H --> H1[Gemini 2.0 Flash]
+    H --> H2[OpenAI GPT-4]
+    H --> H3[Anthropic Claude]
+    
+    B --> I[YouTube Data API]
+    B --> J[Web Search Services]
+    B --> K[Google APIs OAuth2]
+    
+    C --> L[Text Extraction]
+    C --> M[Image Extraction]
+    C --> N[Content Analysis]
+    
+    D --> O[Summary Display]
+    D --> P[Q&A Interface]
+    D --> Q[Export Options]
+    D --> R[Image Gallery]
+    D --> S[Archive System]
 ```
 
 ## 🔧 Technical Stack
 
 - **Extension**: Chrome Manifest V3
 - **Frontend**: React + TypeScript + Tailwind CSS
-- **AI**: Chrome's built-in AI APIs (Gemini Nano)
 - **Build**: Vite + esbuild
 - **Storage**: Chrome Storage API + IndexedDB
+
+### Chrome Built-in AI APIs (Primary)
+- **Summarizer API**: On-device text summarization
+- **Prompt API**: Multimodal AI (text + images)
+- **Translator API**: Language translation
+- **Language Detector API**: Automatic language detection
+- **Proofreader API**: Writing assistance
+- **Gemini Nano**: On-device AI model
+
+### External APIs (Fallback)
+- **Google Gemini 2.0 Flash**: Advanced AI capabilities with vision support
+- **OpenAI GPT-4**: Cloud-based AI with multimodal support
+- **Anthropic Claude**: Alternative AI provider
+
+### Data & Integration APIs
+- **YouTube Data API v3**: Video metadata, comments, transcripts
+- **NewsAPI**: News article search and verification
+- **Wikipedia API**: Fact-checking and reference data
+- **Serper.dev**: Web search and context enhancement
+- **Google Sheets API**: Direct export to spreadsheets
+- **Google Docs API**: Direct export to documents
+
+### Browser APIs
+- **Chrome Storage API**: Local data persistence
+- **Chrome Downloads API**: File exports
+- **Chrome Identity API**: OAuth2 authentication
+- **Chrome Tabs API**: Tab management and content extraction
 
 ## 📊 Roadmap
 
@@ -116,13 +184,19 @@ graph TB
 - [x] Conversation archiving and history
 - [x] Chrome Web Store ready
 
-### Phase 2: Enhanced Features ✅ (In Progress)
+### Phase 2: Enhanced Features ✅ (Completed)
 - [x] Image analysis with Chrome Prompt API & Gemini Vision
 - [x] YouTube integration with Data API (comments, metadata, sentiment)
+- [x] Comprehensive YouTube summaries with key takeaways and comment analysis
 - [x] Export to CSV, Excel, Google Sheets, Google Docs
-- [x] Markdown report generation
+- [x] Markdown report generation with citations and formatting
 - [x] Category-wide Q&A across multiple tabs
-- [x] Image extraction and visualization
+- [x] Image extraction and visualization with horizontal scrolling
+- [x] Chrome AI model download progress indicators
+- [x] Enhanced categorization (news, blog, reference, academic, finance, YouTube)
+- [x] Retry mechanism for failed AI responses
+- [x] Conversation archiving with image preservation
+- [x] Inline image display for image-related questions
 - [ ] Audio transcription
 - [ ] Voice input/output
 

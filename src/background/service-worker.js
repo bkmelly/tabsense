@@ -65,7 +65,9 @@ class WebSearchService {
     if (hasNewsAPI) {
       try {
         const newsApiKey = await this.getAPIKey('newsapi') || await this.getAPIKey('news');
-        const newsResults = await this.searchNewsAPI(query, options.newsLimit || 5, newsApiKey);
+        // Create a simplified query for NewsAPI (removes advanced operators it doesn't support)
+        const simplifiedQuery = this.simplifyQueryForNewsAPI(query);
+        const newsResults = await this.searchNewsAPI(simplifiedQuery, options.newsLimit || 5, newsApiKey);
         results.news = newsResults;
         if (newsResults.length > 0) {
           results.sources.push(...newsResults.map(article => ({
@@ -202,6 +204,41 @@ class WebSearchService {
     return [...new Set(queries)].slice(0, 3);
   }
 
+  // Simplify query for NewsAPI - remove operators it doesn't support (site:, quotes, OR, verify:, etc.)
+  simplifyQueryForNewsAPI(query) {
+    if (!query || typeof query !== 'string') {
+      return '';
+    }
+    
+    // Remove advanced search operators that NewsAPI doesn't support
+    let simplified = query
+      // Remove site: operators
+      .replace(/site:\S+/gi, '')
+      // Remove quoted phrases (keep the text inside quotes though)
+      .replace(/["'""]/g, ' ')
+      // Remove verify: prefixes and parenthetical content
+      .replace(/\(verify:.*?\)/gi, '')
+      // Remove OR operators and replace with spaces
+      .replace(/\bOR\b/gi, ' ')
+      // Remove pipe separators
+      .replace(/\|/g, ' ')
+      // Remove other special syntax
+      .replace(/[()]/g, ' ')
+      // Clean up multiple spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    // Extract the most important keywords (first 100 chars typically contains the main query)
+    if (simplified.length > 100) {
+      // Take the first part (usually the question) and last part (keywords)
+      const parts = simplified.split(' ');
+      const mainPart = parts.slice(0, 10).join(' '); // First 10 words
+      simplified = mainPart;
+    }
+    
+    return simplified;
+  }
+
   async searchNewsAPI(query, limit = 5, apiKeyOverride = null) {
     try {
       const apiKey = apiKeyOverride || await this.getAPIKey('newsapi') || await this.getAPIKey('news');
@@ -209,22 +246,72 @@ class WebSearchService {
         return [];
       }
 
-      const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=en&sortBy=relevancy&pageSize=${limit}&apiKey=${apiKey}`;
+      // Validate and clean query
+      if (!query || typeof query !== 'string') {
+        console.warn('[WebSearch] NewsAPI: Invalid query provided');
+        return [];
+      }
+
+      // Clean and trim query
+      let cleanQuery = query.trim();
+      
+      // Remove special characters that NewsAPI might reject, but keep basic search operators
+      // Remove pipes, newlines, and other problematic characters
+      cleanQuery = cleanQuery.replace(/\|/g, ' ').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      
+      // Limit query length (NewsAPI has limits on query size)
+      if (cleanQuery.length > 500) {
+        cleanQuery = cleanQuery.substring(0, 500).trim();
+      }
+
+      // If query is empty after cleaning, skip
+      if (!cleanQuery || cleanQuery.length === 0) {
+        console.warn('[WebSearch] NewsAPI: Query is empty after cleaning');
+        return [];
+      }
+
+      // NewsAPI /everything endpoint requires at least one valid parameter
+      // If query is too complex, simplify it
+      const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(cleanQuery)}&language=en&sortBy=relevancy&pageSize=${Math.min(limit, 100)}&apiKey=${apiKey}`;
       
       const response = await fetch(url);
+      
+      // Get error details from response if available
       if (!response.ok) {
+        let errorMessage = `NewsAPI error: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.message) {
+            errorMessage = `NewsAPI error: ${errorData.message}`;
+          }
+          if (errorData.code) {
+            errorMessage += ` (code: ${errorData.code})`;
+          }
+        } catch (e) {
+          // If we can't parse the error response, use the status code
+        }
+
         if (response.status === 401) {
+          console.warn('[WebSearch] NewsAPI: API key invalid or expired');
           throw new Error('NewsAPI key invalid');
         }
         if (response.status === 429) {
+          console.warn('[WebSearch] NewsAPI: Rate limit exceeded');
           throw new Error('NewsAPI quota exceeded');
         }
-        throw new Error(`NewsAPI error: ${response.status}`);
+        if (response.status === 400) {
+          // 400 usually means bad request - query might be invalid
+          console.warn('[WebSearch] NewsAPI: Bad request - query may be invalid:', cleanQuery.substring(0, 100));
+          throw new Error(errorMessage);
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
       if (data.status !== 'ok') {
-        throw new Error(`NewsAPI error: ${data.message}`);
+        const errorMsg = data.message || 'Unknown error';
+        console.warn('[WebSearch] NewsAPI: API returned error:', errorMsg);
+        throw new Error(`NewsAPI error: ${errorMsg}`);
       }
 
       return (data.articles || []).map(article => ({
@@ -236,7 +323,9 @@ class WebSearchService {
         source: article.source?.name || 'Unknown'
       }));
     } catch (error) {
-      console.error('[WebSearch] NewsAPI search error:', error);
+      // Log error but don't throw - return empty array so other search providers can still work
+      console.error('[WebSearch] NewsAPI search error:', error.message);
+      console.error('[WebSearch] Query that failed:', query?.substring(0, 200));
       return [];
     }
   }
@@ -1441,6 +1530,7 @@ class TabSenseServiceWorker {
     this.messageHandlers.set('DELETE_API_KEY', this.handleDeleteAPIKey.bind(this));
     this.messageHandlers.set('TOGGLE_API_ENABLED', this.handleToggleAPIEnabled.bind(this));
     this.messageHandlers.set('GET_API_ENABLED_STATES', this.handleGetAPIEnabledStates.bind(this));
+    this.messageHandlers.set('GET_CHROME_AI_MODEL_STATUS', this.handleGetChromeAIModelStatus.bind(this));
     
     // Additional handlers
     this.messageHandlers.set('TAB_PROCESSED', this.handleTabProcessed.bind(this));
@@ -4915,6 +5005,78 @@ Please provide a detailed analysis of the image based on the user's question. In
     } catch (error) {
       console.log('[TabSense] Chrome AI availability check failed:', error.message);
       return false;
+    }
+  }
+
+  async handleGetChromeAIModelStatus(payload, sender) {
+    console.log('[TabSense] GET_CHROME_AI_MODEL_STATUS received');
+    try {
+      const modelStatus = {};
+      let hasDownloading = false;
+      let hasDownloadable = false;
+      
+      // Check Summarizer API
+      if (typeof Summarizer !== 'undefined') {
+        try {
+          const availability = await Summarizer.availability();
+          modelStatus.summarizer = availability;
+          if (availability === 'downloading') hasDownloading = true;
+          if (availability === 'downloadable') hasDownloadable = true;
+        } catch (e) {}
+      }
+      
+      // Check Prompt API
+      if (typeof Prompt !== 'undefined') {
+        try {
+          const availability = await Prompt.availability();
+          modelStatus.prompt = availability;
+          if (availability === 'downloading') hasDownloading = true;
+          if (availability === 'downloadable') hasDownloadable = true;
+        } catch (e) {}
+      }
+      
+      // Check Translator API
+      if (typeof Translator !== 'undefined') {
+        try {
+          const availability = await Translator.availability();
+          modelStatus.translator = availability;
+          if (availability === 'downloading') hasDownloading = true;
+          if (availability === 'downloadable') hasDownloadable = true;
+        } catch (e) {}
+      }
+      
+      // Check LanguageDetector API
+      if (typeof LanguageDetector !== 'undefined') {
+        try {
+          const availability = await LanguageDetector.availability();
+          modelStatus.languageDetector = availability;
+          if (availability === 'downloading') hasDownloading = true;
+          if (availability === 'downloadable') hasDownloadable = true;
+        } catch (e) {}
+      }
+      
+      // Check Gemini Nano API
+      if (typeof GeminiNano !== 'undefined') {
+        try {
+          const availability = await GeminiNano.availability();
+          modelStatus.geminiNano = availability;
+          if (availability === 'downloading') hasDownloading = true;
+          if (availability === 'downloadable') hasDownloadable = true;
+        } catch (e) {}
+      }
+      
+      return {
+        success: true,
+        data: {
+          modelStatus,
+          isDownloading: hasDownloading,
+          hasDownloadable: hasDownloadable,
+          allAvailable: Object.values(modelStatus).every(status => status === 'available')
+        }
+      };
+    } catch (error) {
+      console.error('[TabSense] Error getting Chrome AI model status:', error);
+      return { success: false, error: error.message };
     }
   }
 

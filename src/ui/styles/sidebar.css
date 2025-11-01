@@ -116,6 +116,20 @@
   @apply bg-destructive/10 border border-destructive/20 rounded-md p-3;
 }
 
+/* Chrome AI Model Download Animation */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer-progress {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
 /* Responsive Adjustments */
 @media (max-width: 400px) {
   .sidebar-content {

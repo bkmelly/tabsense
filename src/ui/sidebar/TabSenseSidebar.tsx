@@ -188,6 +188,15 @@ const TabSenseSidebar: React.FC = () => {
   const [googleSheetsEnabled, setGoogleSheetsEnabled] = useState<boolean>(false);
   const [googleDocsEnabled, setGoogleDocsEnabled] = useState<boolean>(false);
   
+  // Chrome AI Model Download Status
+  const [chromeAIModelStatus, setChromeAIModelStatus] = useState<{
+    isDownloading: boolean;
+    hasDownloadable: boolean;
+    allAvailable: boolean;
+    modelStatus: Record<string, string>;
+  } | null>(null);
+  const [modelDownloadComplete, setModelDownloadComplete] = useState(false);
+  
   // Core Tab Data State
   const [tabs, setTabs] = useState<TabSummary[]>([]);
   
@@ -358,6 +367,20 @@ const TabSenseSidebar: React.FC = () => {
                   setGoogleSheetsEnabled(otherEnabled.googlesheets || false);
                   setGoogleDocsEnabled(otherEnabled.googledocs || false);
                 }
+                
+                // Check Chrome AI model download status (will be checked via useEffect after state is set)
+                setTimeout(async () => {
+                  try {
+                    const response = await sendMessageToServiceWorker({ 
+                      action: 'GET_CHROME_AI_MODEL_STATUS' 
+                    });
+                    if (response.success && response.data) {
+                      setChromeAIModelStatus(response.data);
+                    }
+                  } catch (error) {
+                    console.error('[TabSense] Error checking Chrome AI model status:', error);
+                  }
+                }, 1000);
               } catch (error) {
                 console.error('[TabSense] Error checking API availability:', error);
               }
@@ -395,6 +418,54 @@ const TabSenseSidebar: React.FC = () => {
 
     initializeServiceWorker();
   }, []);
+
+  // Check Chrome AI model download status
+  const checkChromeAIModelStatus = React.useCallback(async () => {
+    try {
+      const response = await sendMessageToServiceWorker({ 
+        action: 'GET_CHROME_AI_MODEL_STATUS' 
+      });
+      if (response.success && response.data) {
+        const previousStatus = chromeAIModelStatus;
+        setChromeAIModelStatus(response.data);
+        
+        // If models just finished downloading, show success
+        if (response.data.allAvailable && previousStatus && previousStatus.isDownloading && !response.data.isDownloading) {
+          setModelDownloadComplete(true);
+          setTimeout(() => setModelDownloadComplete(false), 5000); // Hide after 5 seconds
+        }
+      }
+    } catch (error) {
+      console.error('[TabSense] Error checking Chrome AI model status:', error);
+    }
+  }, [chromeAIModelStatus]);
+
+  // Poll for Chrome AI model download status when downloading or downloadable
+  useEffect(() => {
+    if (!chromeAIModelStatus || (chromeAIModelStatus.allAvailable && !chromeAIModelStatus.isDownloading && !chromeAIModelStatus.hasDownloadable)) {
+      return;
+    }
+
+    // Check immediately
+    checkChromeAIModelStatus();
+    
+    // Poll every 3 seconds if downloading or downloadable
+    const interval = setInterval(() => {
+      checkChromeAIModelStatus();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [chromeAIModelStatus?.isDownloading, chromeAIModelStatus?.hasDownloadable, chromeAIModelStatus?.allAvailable, checkChromeAIModelStatus]);
+
+  // Initial check after service worker is ready
+  useEffect(() => {
+    if (serviceWorkerStatus === 'connected') {
+      const timer = setTimeout(() => {
+        checkChromeAIModelStatus();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [serviceWorkerStatus, checkChromeAIModelStatus]);
 
   /**
    * Listen for real-time tab processing updates
@@ -1880,6 +1951,36 @@ const TabSenseSidebar: React.FC = () => {
               ))}
             </div>
           </div>
+          
+          {/* Chrome AI Model Download Progress */}
+          {chromeAIModelStatus && (chromeAIModelStatus.isDownloading || chromeAIModelStatus.hasDownloadable || modelDownloadComplete) && (
+            <div className="px-4 pb-2">
+              {chromeAIModelStatus.isDownloading ? (
+                <div className="relative h-1 bg-muted rounded-full overflow-hidden">
+                  <div className="absolute inset-0 bg-green-500/30 rounded-full" style={{ width: '100%' }} />
+                  <div 
+                    className="absolute inset-0 bg-gradient-to-r from-green-400 via-green-500 to-green-600 rounded-full shimmer-progress" 
+                    style={{ 
+                      width: '50%'
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-[10px] text-green-600 dark:text-green-400 font-medium">Downloading Chrome AI models...</span>
+                  </div>
+                </div>
+              ) : modelDownloadComplete ? (
+                <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400 py-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>Chrome AI models downloaded and ready</span>
+                </div>
+              ) : chromeAIModelStatus.hasDownloadable ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+                  <Download className="w-3 h-3" />
+                  <span>Chrome AI models can be downloaded (will download automatically on first use)</span>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {/* Tab Summaries or Q&A Section */}

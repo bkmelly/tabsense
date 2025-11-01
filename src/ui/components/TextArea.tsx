@@ -448,24 +448,87 @@ const TextArea: React.FC<TextAreaProps> = ({ messages, showSuggestions, isTyping
         <div className="flex flex-col gap-3 px-3">
         {messages.map((msg, idx) => {
             const isAssistant = msg.role === 'assistant';
+            const isUser = msg.role === 'user';
+            
+            // Check if this is an image-related question
+            const isImageQuestion = isUser && extractedImages && extractedImages.length > 0 && (
+              /\b(describe|explain|what.*in|show|analyze|break down|tell me about|details about|information about).*(image|picture|photo|diagram|chart|graph|figure|illustration|visual)\b/i.test(msg.content) ||
+              /\b(image|picture|photo|diagram|chart|graph|figure|illustration|visual).*(describe|explain|show|analyze|what|details|information)\b/i.test(msg.content)
+            );
+            
             return (
-              <div
-                key={idx}
-                className={`${isAssistant ? 'mr-0' : 'ml-10'} p-3 rounded-xl text-sm ${isAssistant ? 'bg-muted/30' : 'bg-primary text-primary-foreground'} whitespace-pre-wrap`}
-              >
-                <span>
-                  {parseContent(msg.content, msg.sources)}
-                </span>
-                {isAssistant && renderSourcesSection(idx, msg.sources)}
-                {msg.error && msg.question && onRetry && (
-                  <button
-                    className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                    onClick={() => onRetry(msg.question!)}
-                  >
-                    <RotateCcw className="w-3 h-3" /> Retry
-                  </button>
+              <React.Fragment key={idx}>
+                <div
+                  className={`${isAssistant ? 'mr-0' : 'ml-10'} p-3 rounded-xl text-sm ${isAssistant ? 'bg-muted/30' : 'bg-primary text-primary-foreground'} whitespace-pre-wrap`}
+                >
+                  <span>
+                    {parseContent(msg.content, msg.sources)}
+                  </span>
+                  {isAssistant && renderSourcesSection(idx, msg.sources)}
+                  {msg.error && msg.question && onRetry && (
+                    <button
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      onClick={() => onRetry(msg.question!)}
+                    >
+                      <RotateCcw className="w-3 h-3" /> Retry
+                    </button>
+                  )}
+                </div>
+                
+                {/* Show images right after image-related user questions */}
+                {isImageQuestion && extractedImages && extractedImages.length > 0 && (
+                  <div className="ml-10 p-3 rounded-xl bg-muted/20 border border-muted/50">
+                    <div className="text-xs text-muted-foreground mb-2 font-medium">📷 Extracted Images</div>
+                    <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                      {extractedImages.slice(0, 3).map((img, imgIdx) => {
+                        const aspectRatio = img.width && img.height ? img.width / img.height : 1;
+                        const maxHeight = 180;
+                        const calculatedWidth = aspectRatio * maxHeight;
+                        const isExpanded = expandedImageIndex === `msg-${idx}-img-${imgIdx}`;
+                        
+                        return (
+                          <div
+                            key={`msg-${idx}-img-${imgIdx}`}
+                            className="flex-shrink-0 relative group"
+                            style={{ width: isExpanded ? 'auto' : `${Math.min(calculatedWidth, 280)}px` }}
+                          >
+                            <div className="relative bg-background rounded-lg overflow-hidden border border-muted">
+                              <img
+                                src={img.src}
+                                alt={img.alt || img.title || 'Extracted image'}
+                                className={`object-contain transition-all ${isExpanded ? 'max-h-[350px]' : 'max-h-[180px]'}`}
+                                style={{ width: isExpanded ? 'auto' : '100%', height: 'auto' }}
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                              
+                              {/* Expand/Collapse button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedImageIndex(isExpanded ? null : `msg-${idx}-img-${imgIdx}`);
+                                }}
+                                className="absolute top-2 right-2 p-1.5 bg-background/90 hover:bg-background rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                title={isExpanded ? "Collapse image" : "Expand image"}
+                              >
+                                {isExpanded ? <X className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                              </button>
+                              
+                              {/* Image info overlay */}
+                              {(img.alt || img.title) && (
+                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background/95 to-transparent p-2">
+                                  <div className="text-[10px] text-muted-foreground truncate">{img.alt || img.title}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
-              </div>
+              </React.Fragment>
             );
           })}
           
