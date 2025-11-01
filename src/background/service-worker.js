@@ -1057,8 +1057,9 @@ Category:`;
   }
   
   async answerQuestionWithFallback(prompt) {
-    // First, try Chrome built-in AI (Prompt API)
+    // First, try Chrome built-in AI (Prompt API or Gemini Nano)
     try {
+      // Try Chrome Prompt API first
       if (typeof Prompt !== 'undefined') {
         const availability = await Prompt.availability();
         if (availability === 'available') {
@@ -1071,8 +1072,24 @@ Category:`;
           console.log('[AIProviderManager] Chrome Prompt API available but needs download');
         }
       }
+      
+      // Try Gemini Nano as fallback for Q&A if Prompt API not available
+      if (typeof GeminiNano !== 'undefined') {
+        const nanoAvailability = await GeminiNano.availability();
+        if (nanoAvailability === 'available') {
+          console.log('[AIProviderManager] Trying Gemini Nano for Q&A...');
+          const nanoSession = await GeminiNano.create();
+          const answer = await nanoSession.prompt(prompt.substring(0, 8000));
+          if (answer && answer.trim().length > 0) {
+            console.log('[AIProviderManager] ✅ Success with Gemini Nano');
+            return { success: true, answer: answer.trim(), provider: 'chrome-nano' };
+          }
+        } else if (nanoAvailability === 'downloadable') {
+          console.log('[AIProviderManager] Gemini Nano available but needs download');
+        }
+      }
     } catch (chromeError) {
-      console.log('[AIProviderManager] Chrome Prompt API not available, falling back to external providers');
+      console.log('[AIProviderManager] Chrome AI not available, falling back to external providers:', chromeError.message);
     }
     
     // Get enabled providers from storage - same logic as summarizeWithFallback
@@ -3412,10 +3429,11 @@ Provide a concise analysis (2-3 sentences) and suggest ONE specific question a u
       const tabTitle = firstMessage?.tabTitle;
       const tabSummary = firstMessage?.tabSummary || firstMessage?.content; // Store summary for context
       const tabCategory = firstMessage?.tabCategory || 'generic';
+      const extractedImages = firstMessage?.extractedImages || null; // Store extracted images
       
       // Clean the first message to remove metadata fields (they're not part of the actual message structure)
       const cleanedMessages = messages.map(msg => {
-        const { tabId, tabUrl, tabTitle, tabSummary, tabCategory, ...cleanMsg } = msg;
+        const { tabId, tabUrl, tabTitle, tabSummary, tabCategory, extractedImages, ...cleanMsg } = msg;
         return cleanMsg;
       });
       
@@ -3429,6 +3447,7 @@ Provide a concise analysis (2-3 sentences) and suggest ONE specific question a u
         tabTitle,
         tabSummary, // Store summary so Q&A works without original tab
         tabCategory, // Store category for suggested questions
+        extractedImages, // Store extracted images for image functionality in archived conversations
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -4439,57 +4458,6 @@ Please provide a detailed analysis of the image based on the user's question. In
               ...searchSources.map(src => ({ title: src.title, url: src.url, type: 'external' }))
             ];
 
-            // Normalize answer to merge stray source-only lines into inline citations and clean markdown
-            const normalizeAnswer = (answerText, sourcesList) => {
-              const shortNameFrom = (s) => {
-                if (s.title && s.title.trim().length > 0) {
-                  const t = s.title.trim();
-                  return t.length > 60 ? t.substring(0, 57) + '...' : t;
-                }
-                try {
-                  const host = new URL(s.url).hostname.replace(/^www\./, '');
-                  return host;
-                } catch { return 'Source'; }
-              };
-              const sourceNames = new Set();
-              (sourcesList || []).forEach(s => sourceNames.add(shortNameFrom(s)));
-              sourceNames.add('Document');
-
-              const lines = answerText.split('\n');
-              const out = [];
-              let lastWasContent = false;
-              for (let i = 0; i < lines.length; i++) {
-                const raw = lines[i];
-                const line = raw.trim();
-                if (line.length === 0) { out.push(raw); continue; }
-                // Skip empty bullets
-                if (line === '•' || line === '• ' || line === '•\t') continue;
-                // Source-only line → append as inline citation to previous non-empty line
-                const isDomain = /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(line);
-                if ((sourceNames.has(line) || isDomain)) {
-                  if (out.length > 0) {
-                  for (let j = out.length - 1; j >= 0; j--) {
-                    if (out[j].trim().length > 0) {
-                      out[j] = out[j].replace(/[\s.]*$/, '') + ` {${line}}`;
-                      break;
-                    }
-                  }
-                  }
-                  // If there is no previous content, drop stray source-only line
-                  continue;
-                }
-                // Join single-word bullets or dangling fragments with the next line if needed (basic heuristic)
-                if (line === '•' || line === '• -') continue;
-                out.push(raw);
-                lastWasContent = true;
-              }
-              // Second pass: remove residual standalone 'Document' tokens inside lines
-              let joined = out.join('\n');
-              joined = joined.replace(/\bDocument\b\.?/g, '');
-              // Apply global markdown cleaning
-              return this.cleanMarkdown(joined);
-            };
-
             // Formatting disabled for QA: return raw model answer
             let cleaned = qaResult.answer;
 
@@ -4890,17 +4858,62 @@ Please provide a detailed analysis of the image based on the user's question. In
 
   async checkChromeAIAvailability() {
     try {
-      // Check if Chrome AI APIs are available
-      if (chrome.readingMode && chrome.ai) {
-        // Try to create a reading mode reader to test availability
-        const reader = await chrome.readingMode.createReader();
-        if (reader) {
-          return true;
-        }
+      // Check if Chrome AI APIs are available (Summarizer, Prompt, Translator, etc.)
+      let hasAnyAI = false;
+      
+      // Check Summarizer API
+      if (typeof Summarizer !== 'undefined') {
+        try {
+          const availability = await Summarizer.availability();
+          if (availability === 'available' || availability === 'downloadable') {
+            hasAnyAI = true;
+          }
+        } catch (e) {}
       }
-      return false;
+      
+      // Check Prompt API
+      if (typeof Prompt !== 'undefined') {
+        try {
+          const availability = await Prompt.availability();
+          if (availability === 'available' || availability === 'downloadable') {
+            hasAnyAI = true;
+          }
+        } catch (e) {}
+      }
+      
+      // Check Translator API
+      if (typeof Translator !== 'undefined') {
+        try {
+          const availability = await Translator.availability();
+          if (availability === 'available' || availability === 'downloadable') {
+            hasAnyAI = true;
+          }
+        } catch (e) {}
+      }
+      
+      // Check LanguageDetector API
+      if (typeof LanguageDetector !== 'undefined') {
+        try {
+          const availability = await LanguageDetector.availability();
+          if (availability === 'available' || availability === 'downloadable') {
+            hasAnyAI = true;
+          }
+        } catch (e) {}
+      }
+      
+      // Check Gemini Nano API
+      if (typeof GeminiNano !== 'undefined') {
+        try {
+          const availability = await GeminiNano.availability();
+          if (availability === 'available' || availability === 'downloadable') {
+            hasAnyAI = true;
+          }
+        } catch (e) {}
+      }
+      
+      return hasAnyAI;
     } catch (error) {
-      console.log('[TabSense] Chrome AI not available:', error.message);
+      console.log('[TabSense] Chrome AI availability check failed:', error.message);
       return false;
     }
   }

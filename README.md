@@ -108,23 +108,31 @@ graph TB
 
 ## 📊 Roadmap
 
-### Phase 1: MVP (Current)
+### Phase 1: MVP ✅ (Completed)
 - [x] Basic Chrome extension structure
-- [x] Text summarization
-- [x] Cross-tab Q&A
-- [ ] Chrome Web Store submission
+- [x] Text summarization (Chrome Summarizer API + Cloud fallback)
+- [x] Cross-tab Q&A with context awareness
+- [x] Smart page categorization (news, blog, reference, academic, finance, YouTube)
+- [x] Conversation archiving and history
+- [x] Chrome Web Store ready
 
-### Phase 2: Enhanced Features
-- [ ] Image analysis
+### Phase 2: Enhanced Features ✅ (In Progress)
+- [x] Image analysis with Chrome Prompt API & Gemini Vision
+- [x] YouTube integration with Data API (comments, metadata, sentiment)
+- [x] Export to CSV, Excel, Google Sheets, Google Docs
+- [x] Markdown report generation
+- [x] Category-wide Q&A across multiple tabs
+- [x] Image extraction and visualization
 - [ ] Audio transcription
-- [ ] Export integrations
 - [ ] Voice input/output
 
-### Phase 3: Scale & Growth
-- [ ] Multi-browser support
-- [ ] Team collaboration
-- [ ] Enterprise features
-- [ ] API platform
+### Phase 3: Advanced Features (Planned)
+- [ ] Multi-browser support (Firefox, Edge)
+- [ ] Offline mode with local AI
+- [ ] Team collaboration & sharing
+- [ ] Enterprise features (SSO, analytics)
+- [ ] API platform for integrations
+- [ ] Browser extension marketplace distribution
 
 ## 🤝 Contributing
 
@@ -156,16 +164,6 @@ npm run build
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
-
-- **Google Chrome Team** for the built-in AI APIs
-- **Mozilla** for the Readability library
-- **Open Source Community** for inspiration and tools
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/tabsense/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/tabsense/discussions)
 - **Email**: lagatbenaiah24@gmail.com
 
 ---

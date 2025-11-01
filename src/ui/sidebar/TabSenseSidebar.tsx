@@ -866,14 +866,22 @@ const TabSenseSidebar: React.FC = () => {
     }
   };
 
-  const saveConversationToArchive = async (title: string, messages: Array<{ role: "user" | "assistant"; content: string; timestamp?: string }>, conversationId?: string) => {
+  const saveConversationToArchive = async (title: string, messages: Array<{ role: "user" | "assistant"; content: string; timestamp?: string; question?: string; error?: boolean }>, conversationId?: string) => {
     // Store the messages for this conversation in the backend
     try {
+      // Include extractedImages in the first message for archive storage
+      const firstMessage = messages[0] || {};
+      const extractedImages = selectedSummaryForQA?.extractedImages || [];
+      const messagesWithImages = extractedImages.length > 0 && messages.length > 0 ? [
+        { ...firstMessage, extractedImages },
+        ...messages.slice(1)
+      ] : messages;
+      
       const response = await sendMessageToServiceWorker({
         action: conversationId ? 'UPDATE_CONVERSATION_MESSAGES' : 'SAVE_CONVERSATION_TO_ARCHIVE',
         conversationId, // Pass ID if updating existing
         title,
-        messages
+        messages: messagesWithImages
       });
       
       if (response.success) {
@@ -954,13 +962,14 @@ const TabSenseSidebar: React.FC = () => {
         setLoadingStage('Waiting for service worker...');
       }
       
-      // Category-wide context: use filteredTabs for the active category
+      // Category-wide context: use filteredTabs for the active category (include extractedImages for image Q&A)
       const contextTabs = filteredTabs.filter(tab => tab.summary && tab.summary.length > 0);
       const context = contextTabs.map(tab => ({
         title: tab.title,
         url: tab.url,
         summary: tab.summary,
-        category: tab.category
+        category: tab.category,
+        extractedImages: tab.extractedImages || [] // Include extracted images for image Q&A
       }));
       
       const response = await sendMessageToServiceWorker({
@@ -1066,12 +1075,13 @@ const TabSenseSidebar: React.FC = () => {
         setLoadingStage('Waiting for service worker...');
       }
       
-      // Get context from the selected summary
+      // Get context from the selected summary (include extractedImages for image Q&A)
       const context = selectedSummaryForQA ? [{
         title: selectedSummaryForQA.title,
         url: selectedSummaryForQA.url,
         summary: selectedSummaryForQA.summary,
-        category: selectedSummaryForQA.category
+        category: selectedSummaryForQA.category,
+        extractedImages: selectedSummaryForQA.extractedImages || [] // Include extracted images for image Q&A
       }] : [];
       
       const response = await sendMessageToServiceWorker({
@@ -1148,7 +1158,9 @@ const TabSenseSidebar: React.FC = () => {
       }
       setLoadingStage('');
       
-      const errorMessage = "Sorry, I couldn't process your question about this summary right now. Please try again.";
+      const errorMessage = serviceWorkerStatus === 'error' || serviceWorkerStatus === 'connecting'
+        ? "Service worker is not connected. Please wait a moment and click retry."
+        : "Sorry, I couldn't process your question about this summary right now. Please try again.";
       const responseTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const finalMessages = [...updatedMessages, { 
         role: "assistant" as const, 
@@ -1637,7 +1649,8 @@ const TabSenseSidebar: React.FC = () => {
                         category: conversation.tabCategory || 'generic',
                         favicon: Globe,
                         keyPoints: [],
-                        analyzing: false
+                        analyzing: false,
+                        extractedImages: conversation.extractedImages || [] // Restore extracted images
                       };
                       setSelectedSummaryForQA(restoredTab);
                       
@@ -1764,6 +1777,10 @@ const TabSenseSidebar: React.FC = () => {
             }}
             onToggleImages={() => setShowSummaryImages(!showSummaryImages)}
             showImages={showSummaryImages}
+            onRetry={(question) => {
+              setSummaryQuestion(question);
+              setTimeout(() => handleSummaryAskQuestion(), 100);
+            }}
             onRegenerateQuestions={async () => {
               // Works for both active tabs and loaded conversations
               const summaryForQuestions = selectedSummaryForQA?.summary || 
