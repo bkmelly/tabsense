@@ -271,10 +271,12 @@ const QASection: React.FC<QASectionProps> = ({
                     size="icon"
                     variant="ghost"
                     onClick={onToggleImages}
-                    className={`h-10 w-10 hover:bg-muted/50 ${showImages ? 'bg-primary/10' : ''}`}
-                    title="Show Extracted Images"
+                    className={`h-10 w-10 hover:bg-muted/50 relative ${showImages ? 'bg-primary/10' : ''}`}
+                    title={`Show Extracted Images (${extractedImages.length})`}
                   >
                     <ImageIcon className="h-4 w-4" />
+                    {/* Red dot indicator */}
+                    <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 rounded-full border border-background" />
                   </Button>
                 )}
               </div>
